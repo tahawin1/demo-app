@@ -4,11 +4,10 @@ pipeline {
     environment {
         IMAGE_NAME = 'monapp'
         IMAGE_TAG = 'latest'
-        SONARQUBE_ENV = 'SonarQube'
     }
     
     tools {
-        // Syntaxe correcte pour SonarQube
+        // Définition correcte de l'outil SonarQube
         'hudson.plugins.sonar.SonarRunnerInstallation' 'SonarQube'
     }
     
@@ -37,8 +36,10 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 echo '🔎 Analyse de code avec SonarQube...'
-                withSonarQubeEnv(installationName: "${SONARQUBE_ENV}") {
+                withSonarQubeEnv('SonarQube') {
+                    // Utiliser le chemin complet vers sonar-scanner
                     sh '''
+                        export PATH=$PATH:$SONAR_SCANNER_HOME/bin
                         sonar-scanner \
                         -Dsonar.projectKey=monapp \
                         -Dsonar.projectName='Mon Application' \
