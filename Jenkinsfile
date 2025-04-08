@@ -1,10 +1,23 @@
 pipeline {
-    agent any
 
+    agent any
+    
     stages {
-        stage('Test Git Checkout') {
+        stage("build"){
             steps {
-                git url: 'https://github.com/TON-UTILISATEUR/TON-REPO.git', branch: 'main'
+                echo 'building the application...'
+            }
+        }
+        
+    stage("test"){
+            steps {
+                echo 'testing the application...'
+            }
+        }
+        
+    stage("deploy"){
+            steps {
+                echo 'deploying the application...'
             }
         }
     }
