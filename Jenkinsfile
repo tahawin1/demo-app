@@ -32,13 +32,14 @@ pipeline {
             steps {
                 echo '🔎 Analyse de code avec SonarQube...'
                 withSonarQubeEnv('SonarQube') {
-                    // Utiliser le chemin absolu vers l'exécutable sonar-scanner
                     sh '''
                         SCANNER_HOME=/var/lib/jenkins/tools/hudson.plugins.sonar.SonarRunnerInstallation/SonarQube
                         $SCANNER_HOME/bin/sonar-scanner \
                         -Dsonar.projectKey=monapp \
                         -Dsonar.projectName='Mon Application' \
                         -Dsonar.sources=. \
+                        -Dsonar.host.url=${SONAR_HOST_URL} \
+                        -Dsonar.login=${SONAR_AUTH_TOKEN} \
                         -Dsonar.exclusions=**/node_modules/**,**/vendor/**
                     '''
                 }
