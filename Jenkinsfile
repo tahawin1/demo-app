@@ -8,8 +8,8 @@ pipeline {
     }
     
     tools {
-        // Utilisation du nom correct pour SonarQube
-        hudson.plugins.sonar.SonarRunnerInstallation 'SonarQube'
+        // Syntaxe correcte pour SonarQube
+        'hudson.plugins.sonar.SonarRunnerInstallation' 'SonarQube'
     }
     
     stages {
