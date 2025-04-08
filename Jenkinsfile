@@ -6,11 +6,6 @@ pipeline {
         IMAGE_TAG = 'latest'
     }
     
-    tools {
-        // Définition correcte de l'outil SonarQube
-        'hudson.plugins.sonar.SonarRunnerInstallation' 'SonarQube'
-    }
-    
     stages {
         stage('Execute') {
             steps {
@@ -37,10 +32,10 @@ pipeline {
             steps {
                 echo '🔎 Analyse de code avec SonarQube...'
                 withSonarQubeEnv('SonarQube') {
-                    // Utiliser le chemin complet vers sonar-scanner
+                    // Utiliser le chemin absolu vers l'exécutable sonar-scanner
                     sh '''
-                        export PATH=$PATH:$SONAR_SCANNER_HOME/bin
-                        sonar-scanner \
+                        SCANNER_HOME=/var/lib/jenkins/tools/hudson.plugins.sonar.SonarRunnerInstallation/SonarQube
+                        $SCANNER_HOME/bin/sonar-scanner \
                         -Dsonar.projectKey=monapp \
                         -Dsonar.projectName='Mon Application' \
                         -Dsonar.sources=. \
