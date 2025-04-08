@@ -1,12 +1,23 @@
 pipeline {
-    agent any
 
+    agent any
+    
     stages {
-        stage('Checkout') {
+        stage("build"){
             steps {
-                git credentialsId: 'github-creds',
-                    url: 'https://github.com/tahawin1/demo-app.git',
-                    branch: 'main'
+                echo 'building the application...'
+            }
+        }
+        
+    stage("test"){
+            steps {
+                echo 'testing the application...'
+            }
+        }
+        
+    stage("deploy"){
+            steps {
+                echo 'deploying the application...'
             }
         }
     }
