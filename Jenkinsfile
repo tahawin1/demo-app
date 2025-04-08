@@ -7,31 +7,45 @@ pipeline {
     }
 
     stages {
-        stage('Build') {
+
+        stage('Execute') {
             steps {
-                echo '📦 Building the application...'
-                sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+                echo '🛠️ Exécution initiale...'
+                sh 'echo "Commande exécutée avant build."'
             }
         }
 
-        stage('Trivy Scan') {
+        stage('Build') {
             steps {
-                echo '🔍 Scanning Docker image with Trivy...'
-                // Assure-toi que Trivy est installé sur ta machine Jenkins
-                sh 'trivy image --severity CRITICAL,HIGH $IMAGE_NAME:$IMAGE_TAG'
+                echo '📦 Construction de l\'image Docker...'
+                sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
             }
         }
 
         stage('Test') {
             steps {
-                echo '🧪 Testing the application...'
-                // Ajoute tes tests ici si nécessaire
+                echo '🧪 Exécution des tests...'
+                // Exemple : Exécution d’un test basique
+                sh 'echo "Tests exécutés (à remplacer par de vrais tests)"'
+            }
+        }
+
+        stage('Scan') {
+            steps {
+                echo '🔍 Scan de sécurité avec Trivy...'
+                // Trivy doit être installé sur la machine Jenkins
+                sh 'trivy image --severity CRITICAL,HIGH $IMAGE_NAME:$IMAGE_TAG'
             }
         }
 
         stage('Deploy') {
             steps {
-                echo '🚀 Deploying the application...'
-                // Ici tu peux pousser ton image ou lancer un conteneur
-                // Exemple simple :
-                sh 'docker run -d --rm --name monapp
+                echo '🚀 Déploiement de l\'application...'
+                // Supprimer le conteneur s’il existe déjà
+                sh 'docker rm -f monapp_container || true'
+                // Lancer l'image buildée
+                sh 'docker run -d --name monapp_container -p 8080:80 $IMAGE_NAME:$IMAGE_TAG'
+            }
+        }
+    }
+}
