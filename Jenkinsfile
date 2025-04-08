@@ -8,8 +8,8 @@ pipeline {
     }
     
     tools {
-        // Définition de l'outil SonarScanner
-        sonarScanner 'SonarQube'
+        // Utilisation du nom correct pour SonarQube
+        hudson.plugins.sonar.SonarRunnerInstallation 'SonarQube'
     }
     
     stages {
@@ -30,7 +30,6 @@ pipeline {
         stage('Test') {
             steps {
                 echo '🧪 Exécution des tests...'
-                // Exemple : Exécution d'un test basique
                 sh 'echo "Tests exécutés (à remplacer par de vrais tests)"'
             }
         }
@@ -38,7 +37,7 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 echo '🔎 Analyse de code avec SonarQube...'
-                withSonarQubeEnv(credentialsId: "${SONARQUBE_ENV}") {
+                withSonarQubeEnv(installationName: "${SONARQUBE_ENV}") {
                     sh '''
                         sonar-scanner \
                         -Dsonar.projectKey=monapp \
@@ -53,7 +52,6 @@ pipeline {
         stage('Quality Gate') {
             steps {
                 timeout(time: 1, unit: 'HOURS') {
-                    // Attendre et vérifier le Quality Gate de SonarQube
                     waitForQualityGate abortPipeline: true
                 }
             }
@@ -62,7 +60,6 @@ pipeline {
         stage('Scan') {
             steps {
                 echo '🔍 Scan de sécurité avec Trivy...'
-                // Trivy doit être installé sur la machine Jenkins
                 sh 'trivy image --severity CRITICAL,HIGH $IMAGE_NAME:$IMAGE_TAG'
             }
         }
@@ -70,9 +67,7 @@ pipeline {
         stage('Deploy') {
             steps {
                 echo '🚀 Déploiement de l\'application...'
-                // Supprimer le conteneur s'il existe déjà
                 sh 'docker rm -f monapp_container || true'
-                // Lancer l'image buildée
                 sh 'docker run -d --name monapp_container -p 8080:80 $IMAGE_NAME:$IMAGE_TAG'
             }
         }
