@@ -4,6 +4,7 @@ pipeline {
     environment {
         IMAGE_NAME = 'monapp'
         IMAGE_TAG = 'latest'
+        SONARQUBE_ENV = 'SonarQube'  // Le nom que tu as donné dans Jenkins
     }
 
     stages {
@@ -25,15 +26,22 @@ pipeline {
         stage('Test') {
             steps {
                 echo '🧪 Exécution des tests...'
-                // Exemple : Exécution d’un test basique
                 sh 'echo "Tests exécutés (à remplacer par de vrais tests)"'
+            }
+        }
+
+        stage('SonarQube Scan') {
+            steps {
+                echo '🔎 Analyse SonarQube (SAST)...'
+                withSonarQubeEnv("${SONARQUBE_ENV}") {
+                    sh 'sonar-scanner'
+                }
             }
         }
 
         stage('Scan') {
             steps {
                 echo '🔍 Scan de sécurité avec Trivy...'
-                // Trivy doit être installé sur la machine Jenkins
                 sh 'trivy image --severity CRITICAL,HIGH $IMAGE_NAME:$IMAGE_TAG'
             }
         }
@@ -41,10 +49,8 @@ pipeline {
         stage('Deploy') {
             steps {
                 echo '🚀 Déploiement de l\'application...'
-                // Supprimer le conteneur s’il existe déjà
                 sh 'docker rm -f monapp_container || true'
-                // Lancer l'image buildée
-                sh 'docker run -d --name monapp_container -p 8080:80 $IMAGE_NAME:$IMAGE_TAG'
+                sh 'docker run -d --name monapp_container -p 8888:80 $IMAGE_NAME:$IMAGE_TAG'
             }
         }
     }
