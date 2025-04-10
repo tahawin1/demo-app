@@ -1,36 +1,69 @@
 pipeline {
     agent any
-    
+
+    environment {
+        IMAGE_NAME = 'myapp'
+        IMAGE_TAG = 'latest'
+        DOCKER_REGISTRY = 'registry.example.com'
+        SONARQUBE_SERVER = 'SonarQube' // Nom configuré dans Jenkins > Manage Jenkins > SonarQube servers
+    }
+
     stages {
-        stage('Test SonarQube Connection') {
+        stage('Checkout') {
+            steps {
+                git 'https://github.com/mon-org/mon-projet.git'
+            }
+        }
+
+        stage('Build Docker Image') {
             steps {
                 script {
-                    try {
-                        // Essaie d'accéder à l'API SonarQube
-                        def response = sh(script: 'curl -s -o /dev/null -w "%{http_code}" http://localhost:9000/api/system/status', returnStdout: true).trim()
-                        
-                        if (response == "200") {
-                            echo "✅ SonarQube est accessible (HTTP 200)"
-                            
-                            // Affiche les informations sur la version
-                            def version = sh(script: 'curl -s http://localhost:9000/api/system/status', returnStdout: true).trim()
-                            echo "Info SonarQube: ${version}"
-                            
-                            // Vérifie si l'installation de SonarQube est correctement configurée dans Jenkins
-                            def sonarInstallation = tool name: 'SonarQube', type: 'hudson.plugins.sonar.SonarRunnerInstallation'
-                            if (sonarInstallation) {
-                                echo "✅ L'installation SonarQube est configurée dans Jenkins"
-                            } else {
-                                echo "❌ Aucune installation SonarQube nommée 'SonarQube' n'est configurée dans Jenkins"
-                            }
-                        } else {
-                            echo "❌ SonarQube n'est pas accessible (HTTP ${response})"
-                        }
-                    } catch (Exception e) {
-                        echo "❌ Erreur lors de la vérification de SonarQube: ${e.message}"
+                    docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
+                }
+            }
+        }
+
+        stage('Trivy Scan') {
+            steps {
+                script {
+                    sh """
+                        trivy image --exit-code 1 --severity CRITICAL,HIGH ${IMAGE_NAME}:${IMAGE_TAG} > trivy-report.txt || true
+                        cat trivy-report.txt
+                    """
+                }
+            }
+        }
+
+        stage('SonarQube SAST Analysis') {
+            steps {
+                withSonarQubeEnv("${SONARQUBE_SERVER}") {
+                    sh 'sonar-scanner -Dsonar.projectKey=myapp -Dsonar.sources=. -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_AUTH_TOKEN'
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 1, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                script {
+                    docker.withRegistry("https://${DOCKER_REGISTRY}", 'docker-creds-id') {
+                        docker.image("${IMAGE_NAME}:${IMAGE_TAG}").push()
                     }
                 }
             }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: '**/trivy-report.txt', allowEmptyArchive: true
         }
     }
 }
