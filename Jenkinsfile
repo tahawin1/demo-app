@@ -1,69 +1,96 @@
 pipeline {
     agent any
-
+    
     environment {
-        IMAGE_NAME = 'myapp'
-        IMAGE_TAG = 'latest'
-        DOCKER_REGISTRY = 'registry.example.com'
-        SONARQUBE_SERVER = 'SonarQube' // Nom configuré dans Jenkins > Manage Jenkins > SonarQube servers
+        // Configuration de base
+        DOCKER_IMAGE = "demo-app"
+        DOCKER_TAG = "${BUILD_NUMBER}"
+        // Pour la connexion à Docker Hub si nécessaire
+        // DOCKER_HUB_CREDS = credentials('docker-hub-credentials')
     }
-
+    
     stages {
-        stage('Checkout') {
+        stage('Checkout SCM') {
             steps {
-                git 'https://github.com/mon-org/mon-projet.git'
+                checkout scm
             }
         }
-
-        stage('Build Docker Image') {
+        
+        stage('SonarQube Analysis') {
             steps {
-                script {
-                    docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
+                withSonarQubeEnv('SonarQube') {
+                    sh '''
+                    sonar-scanner \
+                      -Dsonar.projectKey=demo-app \
+                      -Dsonar.projectName='Demo App' \
+                      -Dsonar.sources=. \
+                      -Dsonar.host.url=http://localhost:9000
+                    '''
                 }
-            }
-        }
-
-        stage('Trivy Scan') {
-            steps {
-                script {
-                    sh """
-                        trivy image --exit-code 1 --severity CRITICAL,HIGH ${IMAGE_NAME}:${IMAGE_TAG} > trivy-report.txt || true
-                        cat trivy-report.txt
-                    """
-                }
-            }
-        }
-
-        stage('SonarQube SAST Analysis') {
-            steps {
-                withSonarQubeEnv("${SONARQUBE_SERVER}") {
-                    sh 'sonar-scanner -Dsonar.projectKey=myapp -Dsonar.sources=. -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_AUTH_TOKEN'
-                }
-            }
-        }
-
-        stage('Quality Gate') {
-            steps {
-                timeout(time: 1, unit: 'MINUTES') {
+                
+                // Attente du Quality Gate
+                timeout(time: 5, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: true
                 }
             }
         }
-
-        stage('Push Docker Image') {
+        
+        stage('Build Docker Image') {
             steps {
                 script {
-                    docker.withRegistry("https://${DOCKER_REGISTRY}", 'docker-creds-id') {
-                        docker.image("${IMAGE_NAME}:${IMAGE_TAG}").push()
+                    // Construction de l'image Docker
+                    sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                    sh "docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest"
+                }
+            }
+        }
+        
+        stage('Trivy Scan') {
+            steps {
+                script {
+                    // Utilisation de Trivy pour scanner l'image Docker à la recherche de vulnérabilités
+                    sh "trivy image --severity HIGH,CRITICAL --no-progress ${DOCKER_IMAGE}:${DOCKER_TAG} > trivy-report.txt || true"
+                    
+                    // Publication du rapport Trivy comme artefact
+                    archiveArtifacts artifacts: 'trivy-report.txt', fingerprint: true
+                    
+                    // Vérification des vulnérabilités critiques et échec du build si nécessaire
+                    def trivyStatus = sh(script: "grep 'CRITICAL: [1-9]' trivy-report.txt || true", returnStatus: true)
+                    if (trivyStatus == 0) {
+                        echo "Vulnérabilités critiques détectées dans l'image Docker!"
+                        // Décommentez la ligne suivante pour que le pipeline échoue en cas de vulnérabilités critiques
+                        // error "Échec du build en raison de vulnérabilités critiques dans l'image Docker"
                     }
                 }
             }
         }
+        
+        stage('Deploy') {
+            when {
+                expression { currentBuild.resultIsBetterOrEqualTo('SUCCESS') }
+            }
+            steps {
+                script {
+                    echo "Déploiement de l'application..."
+                    // Commandes de déploiement (exemple)
+                    // sh "docker stop demo-app-container || true"
+                    // sh "docker rm demo-app-container || true"
+                    // sh "docker run -d --name demo-app-container -p 8080:8080 ${DOCKER_IMAGE}:${DOCKER_TAG}"
+                }
+            }
+        }
     }
-
+    
     post {
         always {
-            archiveArtifacts artifacts: '**/trivy-report.txt', allowEmptyArchive: true
+            // Nettoyage des ressources
+            sh "docker image prune -f"
+        }
+        success {
+            echo "Pipeline exécuté avec succès!"
+        }
+        failure {
+            echo "Le pipeline a échoué."
         }
     }
 }
