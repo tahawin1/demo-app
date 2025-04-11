@@ -1,52 +1,81 @@
-pipeline {
-    agent any
-
-    environment {
-        IMAGE_NAME = "demo-app"
-        TAG = "latest"
-    }
-
-    tools {
-        sonarScanner = 'SonarQubeScanner' // doit correspondre à ton nom dans Jenkins
+ environment {
+        IMAGE_NAME = 'monapp'
+        IMAGE_TAG = 'latest'
     }
 
     stages {
-        stage('Checkout') {
+        stage('Execute') {
             steps {
-                git credentialsId: 'taaha', url: 'https://github.com/tahawin1/demo-app.git', branch: 'master'
+                echo '🛠️ Exécution initiale...'
+                sh 'echo "Commande exécutée avant build."'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                echo '📦 Construction de l\'image Docker...'
+                sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
+            }
+        }
+
+        stage('Test') {
+            steps {
+                echo '🧪 Exécution des tests...'
+                sh 'echo "Tests exécutés (à remplacer par de vrais tests)"'
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
+                echo '🔎 Analyse de code avec SonarQube...'
                 withSonarQubeEnv('SonarQube') {
-                    sh 'sonar-scanner -Dsonar.projectKey=demo-app -Dsonar.sources=. -Dsonar.host.url=http://localhost:9000 -Dsonar.login=<TOKEN>'
+                    sh '''
+                        SCANNER_HOME=/var/lib/jenkins/tools/hudson.plugins.sonar.SonarRunnerInstallation/SonarQube
+                        $SCANNER_HOME/bin/sonar-scanner \
+                        -Dsonar.projectKey=monapp \
+                        -Dsonar.projectName='Mon Application' \
+                        -Dsonar.sources=. \
+                        -Dsonar.host.url=${SONAR_HOST_URL} \
+                        -Dsonar.login=${SONAR_AUTH_TOKEN} \
+                        -Dsonar.exclusions=/node_modules/,/vendor/
+                    '''
                 }
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Quality Gate') {
             steps {
-                sh 'docker build -t $IMAGE_NAME:$TAG .'
+                timeout(time: 1, unit: 'HOURS') {
+                    waitForQualityGate abortPipeline: true
+                }
             }
         }
 
-        stage('Trivy Scan') {
+        stage('Scan') {
             steps {
-                sh 'trivy image --exit-code 0 --severity HIGH,CRITICAL $IMAGE_NAME:$TAG'
+                echo '🔍 Scan de sécurité avec Trivy...'
+                sh 'trivy image --severity CRITICAL,HIGH $IMAGE_NAME:$IMAGE_TAG'
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                echo '🚀 Déploiement de l\'application...'
+                sh 'docker rm -f monapp_container || true'
+                sh 'docker run -d --name monapp_container -p 8080:80 $IMAGE_NAME:$IMAGE_TAG'
             }
         }
     }
 
     post {
-        always {
-            sh 'docker image prune -f'
+        success {
+            echo '✅ Pipeline exécuté avec succès!'
         }
         failure {
-            echo 'Le pipeline a échoué.'
+            echo '❌ Le pipeline a échoué.'
         }
-        success {
-            echo 'Pipeline terminé avec succès !'
+        always {
+            echo 'Nettoyage et finalisation...'
         }
     }
 }
