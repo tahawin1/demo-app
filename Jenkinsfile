@@ -9,14 +9,14 @@ pipeline {
         stage('Préparation') {
             steps {
                 echo "📁 Clonage du projet..."
-                git 'https://github.com/SonarSource/sonar-scanning-examples.git'
+                git 'https://github.com/tahawin1/demo-app.git'
             }
         }
 
         stage('Analyse SonarQube') {
             steps {
                 dir('sonar-scanning-examples/sonarqube-scanner') {
-                    withSonarQubeEnv("${SONARQUBE_ENV}") {
+                    withSonarQubeEnv("${sonarQube}") {
                         echo "🚀 Analyse avec SonarScanner"
                         sh 'sonar-scanner -X'
                     }
