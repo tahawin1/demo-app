@@ -14,7 +14,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo "Clonage du dépôt..."
-                git 'https://github.com/tahawin1/demo-app.git' // adapte le repo
+                git 'https://github.com/tahawin1/demo-app' // adapte le repo
             }
         }
 
