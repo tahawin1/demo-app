@@ -1,70 +1,48 @@
 pipeline {
     agent any
 
+    tools {
+        // Adapte selon ton projet : maven / jdk / nodejs
+        // example : maven 'Maven 3.8.5'
+    }
+
     environment {
-        SONARQUBE_ENV = 'SonarQube' // nom dans Jenkins
-        IMAGE_NAME = 'demo-app'
-        IMAGE_TAG = 'latest'
+        SONARQUBE = 'SonarQube' // Le nom configuré dans Jenkins > SonarQube Servers
     }
 
     stages {
-
-        stage('Checkout SCM') {
+        stage('Checkout') {
             steps {
-                checkout scm
+                echo "Clonage du dépôt..."
+                git 'https://github.com/tahawin1/demo-app.git' // adapte le repo
             }
         }
 
-        stage('SonarQube Analysis') {
+        stage('Analyse SonarQube') {
             steps {
-                withSonarQubeEnv('SonarQube') {
-                    sh 'sonar-scanner -Dsonar.projectKey=demo-app -Dsonar.sources=. -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_AUTH_TOKEN'
+                withSonarQubeEnv("${sonarQube}") {
+                    sh 'sonar-scanner'
                 }
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Quality Gate') {
             steps {
                 script {
-                    sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+                    timeout(time: 2, unit: 'MINUTES') {
+                        waitForQualityGate abortPipeline: true
+                    }
                 }
             }
         }
-
-        stage('Trivy Scan') {
-            steps {
-                script {
-                    sh "trivy image --exit-code 1 --severity CRITICAL ${IMAGE_NAME}:${IMAGE_TAG} || echo 'Vulnérabilités détectées'"
-                }
-            }
-        }
-
-        // Optionnel : Signature Cosign (si activé)
-        /*
-        stage('Sign Docker Image') {
-            steps {
-                sh "cosign sign ${IMAGE_NAME}:${IMAGE_TAG}"
-            }
-        }
-        */
-
-        // Optionnel : Déploiement
-        /*
-        stage('Deploy') {
-            steps {
-                echo 'Déploiement en cours...'
-            }
-        }
-        */
     }
 
     post {
-        always {
-            echo 'Pipeline terminé.'
-            sh 'docker image prune -f'
+        success {
+            echo '✅ Analyse SonarQube réussie et qualité validée.'
         }
         failure {
-            echo 'Le pipeline a échoué.'
+            echo '❌ Échec de l’analyse ou de la qualité SonarQube.'
         }
     }
 }
