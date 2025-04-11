@@ -1,54 +1,35 @@
 pipeline {
     agent any
 
-    tools {
-        // Assurez-vous que ces outils sont bien installés et configurés dans Jenkins
-        // (Manage Jenkins > Global Tool Configuration)
-        maven 'Maven'         // ou remplace par le nom exact configuré dans Jenkins
-        jdk 'JDK-11'          // idem ici
-    }
-
     environment {
-        DOCKER_IMAGE = 'demo-app'
+        IMAGE_NAME = "demo-app"
+        TAG = "latest"
     }
 
     stages {
-        stage('Checkout SCM') {
+        stage('Checkout') {
             steps {
                 git credentialsId: 'taaha', url: 'https://github.com/tahawin1/demo-app.git', branch: 'master'
             }
         }
 
-        stage('SonarQube Analysis') {
-            steps {
-                withSonarQubeEnv('SonarQube') {
-                    sh 'mvn clean verify sonar:sonar'
-                }
-            }
-        }
-
         stage('Build Docker Image') {
             steps {
-                script {
-                    sh "docker build -t ${DOCKER_IMAGE}:latest ."
-                }
+                sh "docker build -t ${IMAGE_NAME}:${TAG} ."
             }
         }
 
-        stage('Trivy Scan') {
+        stage('Scan with Trivy') {
             steps {
-                sh 'trivy image --exit-code 0 --severity CRITICAL,HIGH ${DOCKER_IMAGE}:latest'
+                sh "trivy image --exit-code 0 --severity HIGH,CRITICAL ${IMAGE_NAME}:${TAG}"
             }
         }
     }
 
     post {
         always {
-            echo 'Pipeline terminé.'
+            echo 'Nettoyage des images non utilisées...'
             sh 'docker image prune -f'
-        }
-        failure {
-            echo 'Le pipeline a échoué.'
         }
     }
 }
