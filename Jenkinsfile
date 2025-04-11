@@ -1,81 +1,48 @@
- environment {
-        IMAGE_NAME = 'monapp'
-        IMAGE_TAG = 'latest'
+pipeline {
+    agent any
+
+    tools {
+        // Adapte selon ton projet : maven / jdk / nodejs
+        // example : maven 'Maven 3.8.5'
+    }
+
+    environment {
+        SONARQUBE = 'SonarQube' // Le nom configuré dans Jenkins > SonarQube Servers
     }
 
     stages {
-        stage('Execute') {
+        stage('Checkout') {
             steps {
-                echo '🛠️ Exécution initiale...'
-                sh 'echo "Commande exécutée avant build."'
+                echo "Clonage du dépôt..."
+                git 'https://github.com/ton-utilisateur/ton-repo.git' // adapte le repo
             }
         }
 
-        stage('Build') {
+        stage('Analyse SonarQube') {
             steps {
-                echo '📦 Construction de l\'image Docker...'
-                sh 'docker build -t $IMAGE_NAME:$IMAGE_TAG .'
-            }
-        }
-
-        stage('Test') {
-            steps {
-                echo '🧪 Exécution des tests...'
-                sh 'echo "Tests exécutés (à remplacer par de vrais tests)"'
-            }
-        }
-
-        stage('SonarQube Analysis') {
-            steps {
-                echo '🔎 Analyse de code avec SonarQube...'
-                withSonarQubeEnv('SonarQube') {
-                    sh '''
-                        SCANNER_HOME=/var/lib/jenkins/tools/hudson.plugins.sonar.SonarRunnerInstallation/SonarQube
-                        $SCANNER_HOME/bin/sonar-scanner \
-                        -Dsonar.projectKey=monapp \
-                        -Dsonar.projectName='Mon Application' \
-                        -Dsonar.sources=. \
-                        -Dsonar.host.url=${SONAR_HOST_URL} \
-                        -Dsonar.login=${SONAR_AUTH_TOKEN} \
-                        -Dsonar.exclusions=/node_modules/,/vendor/
-                    '''
+                withSonarQubeEnv("${sonarQube}") {
+                    sh 'sonar-scanner'
                 }
             }
         }
 
         stage('Quality Gate') {
             steps {
-                timeout(time: 1, unit: 'HOURS') {
-                    waitForQualityGate abortPipeline: true
+                script {
+                    timeout(time: 2, unit: 'MINUTES') {
+                        waitForQualityGate abortPipeline: true
+                    }
                 }
-            }
-        }
-
-        stage('Scan') {
-            steps {
-                echo '🔍 Scan de sécurité avec Trivy...'
-                sh 'trivy image --severity CRITICAL,HIGH $IMAGE_NAME:$IMAGE_TAG'
-            }
-        }
-
-        stage('Deploy') {
-            steps {
-                echo '🚀 Déploiement de l\'application...'
-                sh 'docker rm -f monapp_container || true'
-                sh 'docker run -d --name monapp_container -p 8080:80 $IMAGE_NAME:$IMAGE_TAG'
             }
         }
     }
 
     post {
         success {
-            echo '✅ Pipeline exécuté avec succès!'
+            echo '✅ Analyse SonarQube réussie et qualité validée.'
         }
         failure {
-            echo '❌ Le pipeline a échoué.'
-        }
-        always {
-            echo 'Nettoyage et finalisation...'
+            echo '❌ Échec de l’analyse ou de la qualité SonarQube.'
         }
     }
 }
