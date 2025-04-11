@@ -1,9 +1,6 @@
 pipeline {
     agent any
-    tools {
-        // Adapte selon ton projet : maven / jdk / nodejs
-        // example : maven 'Maven 3.8.5'
-    }
+    // La section tools est supprimée car aucun outil n'est spécifié
     environment {
         SONARQUBE = 'SonarQube' // Le nom configuré dans Jenkins > SonarQube Servers
     }
