@@ -1,32 +1,31 @@
 pipeline {
     agent any
 
-    tools {
-        // Adapte selon ton projet : maven / jdk / nodejs
-        // example : maven 'Maven 3.8.5'
-    }
-
     environment {
-        SONARQUBE = 'SonarQube' // Le nom configuré dans Jenkins > SonarQube Servers
+        SONARQUBE_ENV = 'SonarQube' // même nom que dans "Configure System"
     }
 
     stages {
-        stage('Checkout') {
+        stage('Cloner le code') {
             steps {
-                echo "Clonage du dépôt..."
-                git 'https://github.com/tahawin1/demo-app.git' // adapte le repo
+                git 'https://github.com/tahawin1/demo-app.git'
+                dir('sonar-scanning-examples/sonarqube-scanner') {
+                    echo 'Projet Sonar chargé.'
+                }
             }
         }
 
         stage('Analyse SonarQube') {
             steps {
-                withSonarQubeEnv("${sonarQube}") {
-                    sh 'sonar-scanner'
+                dir('sonar-scanning-examples/sonarqube-scanner') {
+                    withSonarQubeEnv("${sonarQube}") {
+                        sh 'sonar-scanner'
+                    }
                 }
             }
         }
 
-        stage('Quality Gate') {
+        stage('Vérification Quality Gate') {
             steps {
                 script {
                     timeout(time: 2, unit: 'MINUTES') {
@@ -39,10 +38,10 @@ pipeline {
 
     post {
         success {
-            echo '✅ Analyse SonarQube réussie et qualité validée.'
+            echo "✅ Analyse réussie et qualité conforme"
         }
         failure {
-            echo '❌ Échec de l’analyse ou de la qualité SonarQube.'
+            echo "❌ Analyse échouée ou qualité non conforme"
         }
     }
 }
