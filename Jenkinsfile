@@ -1,7 +1,7 @@
 pipeline {
     agent any
     environment {
-        SONARQUBE_INSTALLATION = 'sonarQube'
+        SONARQUBE_INSTALLATION = 'sonarQube' 
     }
     stages {
 
