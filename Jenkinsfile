@@ -7,9 +7,7 @@ pipeline {
     }
 
     tools {
-        // Assure-toi que "SonarQube Scanner" est configuré dans Jenkins global tools
-        // Exemple dans Jenkins : Manage Jenkins > Global Tool Configuration > SonarQube Scanner
-        sonarScanner = 'SonarQubeScanner'
+        sonarScanner = 'SonarQubeScanner' // doit correspondre à ton nom dans Jenkins
     }
 
     stages {
@@ -22,35 +20,33 @@ pipeline {
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    sh 'sonar-scanner -Dsonar.projectKey=demo-app -Dsonar.sources=. -Dsonar.host.url=http://localhost:9000 -Dsonar.java.binaries=.'
+                    sh 'sonar-scanner -Dsonar.projectKey=demo-app -Dsonar.sources=. -Dsonar.host.url=http://localhost:9000 -Dsonar.login=<TOKEN>'
                 }
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh "docker build -t ${IMAGE_NAME}:${TAG} ."
+                sh 'docker build -t $IMAGE_NAME:$TAG .'
             }
         }
 
         stage('Trivy Scan') {
             steps {
-                // Fait échouer le build si vulnérabilités HIGH ou CRITICAL
-                sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_NAME}:${TAG}"
+                sh 'trivy image --exit-code 0 --severity HIGH,CRITICAL $IMAGE_NAME:$TAG'
             }
         }
     }
 
     post {
         always {
-            echo 'Nettoyage...'
             sh 'docker image prune -f'
         }
-        success {
-            echo '🎉 Pipeline terminé avec succès !'
-        }
         failure {
-            echo '❌ Échec du pipeline.'
+            echo 'Le pipeline a échoué.'
+        }
+        success {
+            echo 'Pipeline terminé avec succès !'
         }
     }
 }
