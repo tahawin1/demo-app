@@ -1,19 +1,19 @@
 pipeline {
     agent any
-    // La section tools est supprimée car aucun outil n'est spécifié
     environment {
-        SONARQUBE = 'SonarQube' // Le nom configuré dans Jenkins > SonarQube Servers
+        // Utiliser le nom exact tel qu'il apparaît dans la configuration Jenkins
+        SONARQUBE_INSTALLATION = 'sonarQube'  // Exactement comme dans votre configuration
     }
     stages {
         stage('Checkout') {
             steps {
                 echo "Clonage du dépôt..."
-                git 'https://github.com/tahawin1/demo-app' // adapte le repo
+                git 'https://github.com/tahawin1/demo-app'
             }
         }
         stage('Analyse SonarQube') {
             steps {
-                withSonarQubeEnv("${SONARQUBE}") {
+                withSonarQubeEnv("${SONARQUBE_INSTALLATION}") {
                     sh '''
                     sonar-scanner \
                       -Dsonar.projectKey=demo-app \
