@@ -1,16 +1,13 @@
 pipeline {
     agent any
-
     environment {
         SONARQUBE_INSTALLATION = 'sonarQube'
-        IMAGE_NAME = 'demo-app'
-        TAG = 'latest'
     }
-
     stages {
+
         stage('Checkout') {
             steps {
-                echo "📦 Clonage du dépôt..."
+                echo "Clonage du dépôt..."
                 git 'https://github.com/tahawin1/demo-app'
             }
         }
@@ -21,7 +18,7 @@ pipeline {
                     sh '''
                     /opt/sonar-scanner/bin/sonar-scanner \
                       -Dsonar.projectKey=demo-app \
-                      -Dsonar.projectName="Demo App" \
+                      -Dsonar.projectName='Demo App' \
                       -Dsonar.sources=. \
                       -Dsonar.host.url=${SONAR_HOST_URL} \
                       -Dsonar.login=${SONAR_AUTH_TOKEN}
@@ -30,20 +27,30 @@ pipeline {
             }
         }
 
+        // ➕ Étape SCA - Analyse des dépendances avec Trivy
+        stage('Analyse SCA - Dépendances') {
+            steps {
+                echo 'Analyse des dépendances (SCA) avec Trivy...'
+                sh '''
+                trivy fs --scanners vuln,license . > trivy-sca-report.txt
+                cat trivy-sca-report.txt
+                '''
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
-                echo "🐳 Construction de l'image Docker..."
-                sh '''
-                docker build -t ${IMAGE_NAME}:${TAG} .
-                '''
+                echo 'Construction de l’image Docker...'
+                sh 'docker build -t demo-app:latest .'
             }
         }
 
         stage('Trivy Scan') {
             steps {
-                echo "🔍 Scan de l'image Docker avec Trivy..."
+                echo 'Scan de l’image Docker avec Trivy...'
                 sh '''
-                trivy image --exit-code 0 --severity HIGH,CRITICAL ${IMAGE_NAME}:${TAG}
+                trivy image --severity HIGH,CRITICAL demo-app:latest > trivy-image-report.txt
+                cat trivy-image-report.txt
                 '''
             }
         }
@@ -51,14 +58,10 @@ pipeline {
 
     post {
         success {
-            echo '✅ Pipeline terminé avec succès (SonarQube + Docker + Trivy).'
+            echo '✅ Analyse SonarQube, SCA et scan de conteneur réussis.'
         }
         failure {
-            echo '❌ Échec du pipeline (vérifie les logs).'
-        }
-        always {
-            echo '🧹 Nettoyage des ressources...'
-            sh 'docker image prune -f'
+            echo '❌ Échec d’une des étapes de sécurité.'
         }
     }
 }
