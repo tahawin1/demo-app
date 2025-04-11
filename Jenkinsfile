@@ -1,8 +1,7 @@
 pipeline {
     agent any
     environment {
-        // Utiliser le nom exact tel qu'il apparaît dans la configuration Jenkins
-        SONARQUBE_INSTALLATION = 'sonarQube'  // Exactement comme dans votre configuration
+        SONARQUBE_INSTALLATION = 'sonarQube'
     }
     stages {
         stage('Checkout') {
@@ -15,7 +14,7 @@ pipeline {
             steps {
                 withSonarQubeEnv("${SONARQUBE_INSTALLATION}") {
                     sh '''
-                    sonar-scanner \
+                    /opt/sonar-scanner/bin/sonar-scanner \
                       -Dsonar.projectKey=demo-app \
                       -Dsonar.projectName='Demo App' \
                       -Dsonar.sources=. \
