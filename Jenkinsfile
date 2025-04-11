@@ -2,24 +2,23 @@ pipeline {
     agent any
 
     environment {
-        SONARQUBE_ENV = 'SonarQube' // même nom que dans "Configure System"
+        SONARQUBE_ENV = 'SonarQube' // 🔁 Remplace par le nom que tu as configuré dans Jenkins > Manage Jenkins > Configure System
     }
 
     stages {
-        stage('Cloner le code') {
+        stage('Préparation') {
             steps {
-                git 'https://github.com/tahawin1/demo-app.git'
-                dir('sonar-scanning-examples/sonarqube-scanner') {
-                    echo 'Projet Sonar chargé.'
-                }
+                echo "📁 Clonage du projet..."
+                git 'https://github.com/SonarSource/sonar-scanning-examples.git'
             }
         }
 
         stage('Analyse SonarQube') {
             steps {
                 dir('sonar-scanning-examples/sonarqube-scanner') {
-                    withSonarQubeEnv("${sonarQube}") {
-                        sh 'sonar-scanner'
+                    withSonarQubeEnv("${SONARQUBE_ENV}") {
+                        echo "🚀 Analyse avec SonarScanner"
+                        sh 'sonar-scanner -X'
                     }
                 }
             }
@@ -28,7 +27,7 @@ pipeline {
         stage('Vérification Quality Gate') {
             steps {
                 script {
-                    timeout(time: 2, unit: 'MINUTES') {
+                    timeout(time: 3, unit: 'MINUTES') {
                         waitForQualityGate abortPipeline: true
                     }
                 }
@@ -38,10 +37,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ Analyse réussie et qualité conforme"
+            echo "✅ Analyse et Quality Gate validés"
         }
         failure {
-            echo "❌ Analyse échouée ou qualité non conforme"
+            echo "❌ Échec : Analyse ou Quality Gate"
         }
     }
 }
