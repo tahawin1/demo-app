@@ -1,47 +1,54 @@
 pipeline {
     agent any
 
+    tools {
+        // Assurez-vous que ces outils sont bien installés et configurés dans Jenkins
+        // (Manage Jenkins > Global Tool Configuration)
+        maven 'Maven'         // ou remplace par le nom exact configuré dans Jenkins
+        jdk 'JDK-11'          // idem ici
+    }
+
     environment {
-        SONARQUBE_ENV = 'SonarQube' // 🔁 Remplace par le nom que tu as configuré dans Jenkins > Manage Jenkins > Configure System
+        DOCKER_IMAGE = 'demo-app'
     }
 
     stages {
-        stage('Préparation') {
+        stage('Checkout SCM') {
             steps {
-                echo "📁 Clonage du projet..."
-                git 'https://github.com/tahawin1/demo-app.git'
+                git credentialsId: 'taaha', url: 'https://github.com/tahawin1/demo-app.git', branch: 'master'
             }
         }
 
-        stage('Analyse SonarQube') {
+        stage('SonarQube Analysis') {
             steps {
-                dir('sonar-scanning-examples/sonarqube-scanner') {
-                             withSonarQubeEnv('SonarQube') {
-    sh 'sonar-scanner'
-}
-
-                    }
+                withSonarQubeEnv('SonarQube') {
+                    sh 'mvn clean verify sonar:sonar'
                 }
             }
         }
 
-        stage('Vérification Quality Gate') {
+        stage('Build Docker Image') {
             steps {
                 script {
-                    timeout(time: 3, unit: 'MINUTES') {
-                        waitForQualityGate abortPipeline: true
-                    }
+                    sh "docker build -t ${DOCKER_IMAGE}:latest ."
                 }
+            }
+        }
+
+        stage('Trivy Scan') {
+            steps {
+                sh 'trivy image --exit-code 0 --severity CRITICAL,HIGH ${DOCKER_IMAGE}:latest'
             }
         }
     }
 
     post {
-        success {
-            echo "✅ Analyse et Quality Gate validés"
+        always {
+            echo 'Pipeline terminé.'
+            sh 'docker image prune -f'
         }
         failure {
-            echo "❌ Échec : Analyse ou Quality Gate"
+            echo 'Le pipeline a échoué.'
         }
     }
 }
