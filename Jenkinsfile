@@ -16,9 +16,10 @@ pipeline {
         stage('Analyse SonarQube') {
             steps {
                 dir('sonar-scanning-examples/sonarqube-scanner') {
-                    withSonarQubeEnv("${sonarQube}") {
-                        echo "🚀 Analyse avec SonarScanner"
-                        sh 'sonar-scanner -X'
+                             withSonarQubeEnv('SonarQube') {
+    sh 'sonar-scanner'
+}
+
                     }
                 }
             }
