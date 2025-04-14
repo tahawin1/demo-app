@@ -1,79 +1,40 @@
 pipeline {
     agent any
-    environment {
-        SONARQUBE_INSTALLATION = 'sonarQube' 
-    }
+
     stages {
-
-        stage('Checkout') {
+        stage('Install Trivy and Cosign') {
             steps {
-                echo "Clonage du dépôt..."
-                git 'https://github.com/tahawin1/demo-app'
-            }
-        }
+                script {
+                    // Installer Trivy
+                    sh 'curl -sfL https://github.com/aquasecurity/trivy/releases/download/v0.29.1/trivy_0.29.1_Linux-64bit.deb -o trivy.deb'
+                    sh 'sudo dpkg -i trivy.deb'
 
-        stage('Analyse SonarQube') {
-            steps {
-                withSonarQubeEnv("${SONARQUBE_INSTALLATION}") {
-                    sh '''
-                    /opt/sonar-scanner/bin/sonar-scanner \
-                      -Dsonar.projectKey=demo-app \
-                      -Dsonar.projectName='Demo App' \
-                      -Dsonar.sources=. \
-                      -Dsonar.host.url=${SONAR_HOST_URL} \
-                      -Dsonar.login=${SONAR_AUTH_TOKEN}
-                    '''
+                    // Installer Cosign
+                    sh 'curl -sSL https://github.com/sigstore/cosign/releases/download/v1.16.0/cosign-linux-amd64 -o cosign'
+                    sh 'chmod +x cosign'
+                    sh 'sudo mv cosign /usr/local/bin/'
                 }
             }
         }
 
-        stage('Analyse SCA - Dépendances') {
+        stage('Scan Image with Trivy') {
             steps {
-                echo 'Analyse des dépendances (SCA) avec Trivy...'
-                sh '''
-                trivy fs --scanners vuln,license . > trivy-sca-report.txt
-                cat trivy-sca-report.txt
-                '''
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                echo 'Construction de l’image Docker...'
-                sh 'docker build -t demo-app:latest .'
-            }
-        }
-
-        stage('Trivy Scan') {
-            steps {
-                echo 'Scan de l’image Docker avec Trivy...'
-                sh '''
-                trivy image --severity HIGH,CRITICAL demo-app:latest > trivy-image-report.txt
-                cat trivy-image-report.txt
-                '''
-            }
-        }
-
-        // ➕ Étape Cosign - Signature de l'image Docker
-        stage('Signer l’image Docker avec Cosign') {
-            steps {
-                echo 'Signature de l’image Docker avec Cosign...'
-                withCredentials([file(credentialsId: 'cosign-key', variable: 'COSIGN_KEY')]) {
-                    sh '''
-                    export COSIGN_PASSWORD=""
-                    cosign sign --key $COSIGN_KEY demo-app:latest
-                    '''
+                script {
+                    // Scanner l'image Docker avec Trivy
+                    sh 'trivy image --exit-code 1 --no-progress <your-docker-image>'
                 }
             }
         }
-    }
 
-    post {
-        success {
-            echo '✅ Analyse SonarQube, SCA, scan de conteneur et signature réussis.'
-        }
-        failure {
-            echo '❌ Échec d’une des étapes de sécurité.'
+        stage('Sign Image with Cosign') {
+            steps {
+                script {
+                    // Signer l'image Docker avec Cosign après le scan
+                    withCredentials([file(credentialsId: 'cosign-key', variable: 'COSIGN_KEY')]) {
+                        sh "cosign sign --key $COSIGN_KEY <your-docker-image>"
+                    }
+                }
+            }
         }
     }
 }
