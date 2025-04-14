@@ -27,7 +27,6 @@ pipeline {
             }
         }
 
-        // ➕ Étape SCA - Analyse des dépendances avec Trivy
         stage('Analyse SCA - Dépendances') {
             steps {
                 echo 'Analyse des dépendances (SCA) avec Trivy...'
@@ -53,7 +52,9 @@ pipeline {
                 cat trivy-image-report.txt
                 '''
             }
-        }         
+        }
+
+        // ➕ Étape Cosign - Signature de l'image Docker
         stage('Signer l’image Docker avec Cosign') {
             steps {
                 echo 'Signature de l’image Docker avec Cosign...'
@@ -65,11 +66,11 @@ pipeline {
                 }
             }
         }
-    } 
+    }
 
     post {
         success {
-            echo '✅ Analyse SonarQube, SCA et scan de conteneur réussis.'
+            echo '✅ Analyse SonarQube, SCA, scan de conteneur et signature réussis.'
         }
         failure {
             echo '❌ Échec d’une des étapes de sécurité.'
