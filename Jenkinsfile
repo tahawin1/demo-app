@@ -1,79 +1,22 @@
-pipeline {
-    agent any
-    environment {
-        SONARQUBE_INSTALLATION = 'sonarQube' 
-    }
-    stages {
-
-        stage('Checkout') {
+        stage('Signature avec Cosign') {
             steps {
-                echo "Clonage du dépôt..."
-                git 'https://github.com/tahawin1/demo-app'
-            }
-        }
-
-        stage('Analyse SonarQube') {
-            steps {
-                withSonarQubeEnv("${SONARQUBE_INSTALLATION}") {
-                    sh '''
-                    /opt/sonar-scanner/bin/sonar-scanner \
-                      -Dsonar.projectKey=demo-app \
-                      -Dsonar.projectName='Demo App' \
-                      -Dsonar.sources=. \
-                      -Dsonar.host.url=${SONAR_HOST_URL} \
-                      -Dsonar.login=${SONAR_AUTH_TOKEN}
-                    '''
-                }
-            }
-        }
-
-        // ➕ Étape SCA - Analyse des dépendances avec Trivy
-        stage('Analyse SCA - Dépendances') {
-            steps {
-                echo 'Analyse des dépendances (SCA) avec Trivy...'
-                sh '''
-                trivy fs --scanners vuln,license . > trivy-sca-report.txt
-                cat trivy-sca-report.txt
-                '''
-            }
-        }
-
-        stage('Build Docker Image') {
-            steps {
-                echo 'Construction de l’image Docker...'
-                sh 'docker build -t demo-app:latest .'
-            }
-        }
-
-        stage('Trivy Scan') {
-            steps {
-                echo 'Scan de l’image Docker avec Trivy...'
-                sh '''
-                trivy image --severity HIGH,CRITICAL demo-app:latest > trivy-image-report.txt
-                cat trivy-image-report.txt
-                '''
-            }
-        }
-
-        // ➕ Étape Cosign - Signature de l'image Docker
-        stage('Cosign Sign Image') {
-            steps {
-                echo 'Signature de l’image Docker avec Cosign...'
+                echo '🔐 Signature de l’image avec Cosign...'
                 withCredentials([file(credentialsId: 'cosign-key', variable: 'COSIGN_KEY')]) {
-                    sh '''
-                    cosign sign --key $COSIGN_KEY demo-app:latest
-                    '''
+                    script {
+                        // Récupérer le digest de l’image pour une signature fiable
+                        def digest = sh(script: "docker inspect --format='{{index .RepoDigests 0}}' demo-app:latest", returnStdout: true).trim()
+                        sh "cosign sign --key $COSIGN_KEY ${digest}"
+                    }
                 }
             }
         }
-    }
 
-    post {
-        success {
-            echo '✅ Analyse SonarQube, SCA, scan de conteneur et signature réussis.'
+        stage('Vérification de la signature') {
+            steps {
+                echo '✅ Vérification de la signature avec Cosign...'
+                script {
+                    def digest = sh(script: "docker inspect --format='{{index .RepoDigests 0}}' demo-app:latest", returnStdout: true).trim()
+                    sh "cosign verify --key /var/jenkins_home/cosign.pub ${digest}"
+                }
+            }
         }
-        failure {
-            echo '❌ Échec d’une des étapes de sécurité.'
-        }
-    }
-}
