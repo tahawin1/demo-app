@@ -53,8 +53,19 @@ pipeline {
                 cat trivy-image-report.txt
                 '''
             }
+        }         
+        stage('Signer l’image Docker avec Cosign') {
+            steps {
+                echo 'Signature de l’image Docker avec Cosign...'
+                withCredentials([file(credentialsId: 'cosign-key', variable: 'COSIGN_KEY')]) {
+                    sh '''
+                    export COSIGN_PASSWORD=""
+                    cosign sign --key $COSIGN_KEY demo-app:latest
+                    '''
+                }
+            }
         }
-    }
+    } 
 
     post {
         success {
