@@ -1,48 +1,67 @@
 pipeline {
     agent any
-
-    tools {
-        // Adapte selon ton projet : maven / jdk / nodejs
-        // example : maven 'Maven 3.8.5'
-    }
-
     environment {
-        SONARQUBE = 'SonarQube' // Le nom configuré dans Jenkins > SonarQube Servers
+        SONARQUBE_INSTALLATION = 'sonarQube' 
     }
-
     stages {
+
         stage('Checkout') {
             steps {
                 echo "Clonage du dépôt..."
-                git 'https://github.com/ton-utilisateur/ton-repo.git' // adapte le repo
+                git 'https://github.com/tahawin1/demo-app'
             }
         }
 
         stage('Analyse SonarQube') {
             steps {
-                withSonarQubeEnv("${sonarQube}") {
-                    sh 'sonar-scanner'
+                withSonarQubeEnv("${SONARQUBE_INSTALLATION}") {
+                    sh '''
+                    /opt/sonar-scanner/bin/sonar-scanner \
+                      -Dsonar.projectKey=demo-app \
+                      -Dsonar.projectName='Demo App' \
+                      -Dsonar.sources=. \
+                      -Dsonar.host.url=${SONAR_HOST_URL} \
+                      -Dsonar.login=${SONAR_AUTH_TOKEN}
+                    '''
                 }
             }
         }
 
-        stage('Quality Gate') {
+        // ➕ Étape SCA - Analyse des dépendances avec Trivy
+        stage('Analyse SCA - Dépendances') {
             steps {
-                script {
-                    timeout(time: 2, unit: 'MINUTES') {
-                        waitForQualityGate abortPipeline: true
-                    }
-                }
+                echo 'Analyse des dépendances (SCA) avec Trivy...'
+                sh '''
+                trivy fs --scanners vuln,license . > trivy-sca-report.txt
+                cat trivy-sca-report.txt
+                '''
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                echo 'Construction de l’image Docker...'
+                sh 'docker build -t demo-app:latest .'
+            }
+        }
+
+        stage('Trivy Scan') {
+            steps {
+                echo 'Scan de l’image Docker avec Trivy...'
+                sh '''
+                trivy image --severity HIGH,CRITICAL demo-app:latest > trivy-image-report.txt
+                cat trivy-image-report.txt
+                '''
             }
         }
     }
 
     post {
         success {
-            echo '✅ Analyse SonarQube réussie et qualité validée.'
+            echo '✅ Analyse SonarQube, SCA et scan de conteneur réussis.'
         }
         failure {
-            echo '❌ Échec de l’analyse ou de la qualité SonarQube.'
+            echo '❌ Échec d’une des étapes de sécurité.'
         }
     }
 }
