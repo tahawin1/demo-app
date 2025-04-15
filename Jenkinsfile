@@ -2,7 +2,7 @@ pipeline {
     agent any
     environment {
         SONARQUBE_INSTALLATION = 'sonarQube' 
-        ZAP_IMAGE = 'owasp/zap2docker-stable'  // Image Docker d'OWASP ZAP
+        ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:stable'  // Image Docker d'OWASP ZAP
         TARGET_URL = 'http://localhost:8080'    // L'URL de l'application à scanner
     }
     stages {
