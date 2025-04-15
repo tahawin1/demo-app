@@ -1,9 +1,10 @@
-pipeline {
+
+       pipeline {
     agent any
     environment {
         SONARQUBE_INSTALLATION = 'sonarQube' 
         ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:stable'  // Image Docker d'OWASP ZAP
-        TARGET_URL = 'http://zero.webappsecurity.com'  // L'URL de l'application à scanner
+        TARGET_URL = 'http://zero.webappsecurity.com'   // L'URL de l'application à scanner
     }
     stages {
         stage('Checkout') {
@@ -67,7 +68,7 @@ pipeline {
                 echo 'Scan dynamique de l\'application avec OWASP ZAP...'
                 sh """
                 # Utilisation du réseau host pour accéder à localhost
-                docker run --network=host -v \$(pwd):/zap/wrk/:rw ${ZAP_IMAGE} zap-baseline.py -t ${TARGET_URL} -r zap-report1.html -I
+                docker run --network=host -v \$(pwd):/zap/wrk/:rw ${ZAP_IMAGE} zap-baseline.py -t ${TARGET_URL} -r zap-report.html -I
                 """
             }
             // Permettre à l'étape de continuer même si ZAP trouve des alertes
@@ -87,12 +88,12 @@ pipeline {
                 echo 'Analyse des résultats OWASP ZAP...'
                 sh '''
                 # Vérification de l'existence du rapport
-                if [ -f "zap-report1.html" ]; then
+                if [ -f "zap-report.html" ]; then
                     echo "Rapport ZAP généré avec succès"
                     
                     # Vous pouvez ajouter ici un script pour analyser le contenu du rapport
                     # Par exemple, chercher des vulnérabilités de haute gravité
-                    if grep -q "High" zap-report1.html; then
+                    if grep -q "High" zap-report.html; then
                         echo "ATTENTION: Des vulnérabilités de haute gravité ont été détectées!"
                     fi
                 else
