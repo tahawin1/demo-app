@@ -4,7 +4,7 @@ pipeline {
         SONARQUBE_INSTALLATION = 'sonarQube' 
         ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:stable'  // Image Docker d'OWASP ZAP
         TARGET_URL = 'http://localhost:8080'    // L'URL de l'application à scanner
-        MISTRAL_API_KEY = credentials('taha-jenkins') // Credentials Jenkins pour l'API Mistral
+        MISTRAL_API_KEY = credentials('taha-jenkis') // Credentials Jenkins pour l'API Mistral
     }
     stages {
         // Nouvelle étape: Installation des outils requis
@@ -281,8 +281,25 @@ pipeline {
                 # Conversion en HTML
                 echo '<html><head><meta charset="UTF-8"><title>Rapport de Sécurité</title><style>body{font-family:system-ui;max-width:800px;margin:0 auto;padding:20px}h1{color:#2c3e50}h2{color:#3498db}pre{background:#f8f8f8;padding:10px;overflow:auto;border-radius:3px}code{background:#f8f8f8;padding:2px 4px;border-radius:3px}</style></head><body>' > mistral-security-report.html
                 
-                # Conversion Markdown vers HTML simple
-                cat mistral-security-report.md | sed 's/^# /<h1>/g' | sed 's/^## /<h2>/g' | sed 's/^### /<h3>/g' | sed 's/^- /<li>/g; s/$/<\/li>/g' | sed 's/^[0-9]\. /<li>/g; s/$/<\/li>/g' >> mistral-security-report.html
+                # Conversion Markdown vers HTML simple (sans sed complexe)
+                awk '{
+                  if (substr($0,1,2) == "# ") {
+                    print "<h1>" substr($0,3) "</h1>"
+                  } else if (substr($0,1,3) == "## ") {
+                    print "<h2>" substr($0,4) "</h2>"
+                  } else if (substr($0,1,4) == "### ") {
+                    print "<h3>" substr($0,5) "</h3>"
+                  } else if (substr($0,1,2) == "- ") {
+                    print "<li>" substr($0,3) "</li>"
+                  } else if ($0 ~ /^[0-9]+\. /) {
+                    sub(/^[0-9]+\. /, "")
+                    print "<li>" $0 "</li>"
+                  } else if ($0 == "") {
+                    print "<br/>"
+                  } else {
+                    print "<p>" $0 "</p>"
+                  }
+                }' mistral-security-report.md >> mistral-security-report.html
                 echo '</body></html>' >> mistral-security-report.html
                 '''
                 
@@ -309,9 +326,6 @@ pipeline {
                         
                         echo "Envoi de la requête à l'API Mistral..."
                         
-                        # Affichage de la clé API (partie cachée pour la sécurité)
-                        echo "Utilisation de l'API key: ${MISTRAL_API_KEY:0:3}****"
-                        
                         # Appel de l'API Mistral
                         curl --fail -X POST https://api.mistral.ai/v1/chat/completions \
                           -H "Content-Type: application/json" \
@@ -326,8 +340,25 @@ pipeline {
                             # Conversion en HTML
                             echo '<html><head><meta charset="UTF-8"><title>Rapport de Sécurité IA</title><style>body{font-family:system-ui;max-width:800px;margin:0 auto;padding:20px}h1{color:#2c3e50}h2{color:#3498db}pre{background:#f8f8f8;padding:10px;overflow:auto;border-radius:3px}code{background:#f8f8f8;padding:2px 4px;border-radius:3px}</style></head><body>' > mistral-security-report.html
                             
-                            # Conversion Markdown vers HTML simple
-                            cat mistral-security-report.md | sed 's/^# /<h1>/g' | sed 's/^## /<h2>/g' | sed 's/^### /<h3>/g' | sed 's/^#### /<h4>/g' | sed 's/^- /<li>/g; s/$/<\/li>/g' >> mistral-security-report.html
+                            # Conversion Markdown vers HTML simple (sans sed complexe)
+                            awk '{
+                              if (substr($0,1,2) == "# ") {
+                                print "<h1>" substr($0,3) "</h1>"
+                              } else if (substr($0,1,3) == "## ") {
+                                print "<h2>" substr($0,4) "</h2>"
+                              } else if (substr($0,1,4) == "### ") {
+                                print "<h3>" substr($0,5) "</h3>"
+                              } else if (substr($0,1,2) == "- ") {
+                                print "<li>" substr($0,3) "</li>"
+                              } else if ($0 ~ /^[0-9]+\. /) {
+                                sub(/^[0-9]+\. /, "")
+                                print "<li>" $0 "</li>"
+                              } else if ($0 == "") {
+                                print "<br/>"
+                              } else {
+                                print "<p>" $0 "</p>"
+                              }
+                            }' mistral-security-report.md >> mistral-security-report.html
                             echo '</body></html>' >> mistral-security-report.html
                             
                             echo "✅ Rapport Mistral AI généré avec succès"
