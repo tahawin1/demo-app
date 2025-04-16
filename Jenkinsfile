@@ -3,7 +3,8 @@ pipeline {
     environment {
         SONARQUBE_INSTALLATION = 'sonarQube'
         ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:stable'
-        TARGET_URL = 'http://demo.testfire.net'
+        TARGET_URL = 'https://xss-game.appspot.com/level1/frame'
+
         MISTRAL_API_KEY = credentials('taha-jenkins')
         MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions'
     }
