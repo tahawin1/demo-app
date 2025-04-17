@@ -3,12 +3,20 @@ pipeline {
     environment {
         SONARQUBE_INSTALLATION = 'sonarQube'
         ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:stable'
-        TARGET_URL = 'http://testphp.vulnweb.com'
+        TARGET_URL = "http://testphp.vulnweb.com?timestamp=${currentBuild.startTimeInMillis}"
 
         MISTRAL_API_KEY = credentials('taha-jenkins')
         MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions'
     }
     stages {
+        stage('Cleanup') {
+            steps {
+                echo "Nettoyage des fichiers précédents..."
+                sh 'rm -f trivy-*.txt zap-*.html zap-alerts.txt combined-security-report.txt security-recommendations.md mistral-*.json'
+                sh 'rm -rf security-reports zap-output'
+            }
+        }
+        
         stage('Checkout') {
             steps {
                 echo "Clonage du dépôt..."
@@ -44,7 +52,7 @@ pipeline {
                     try {
                         echo 'Analyse SCA avec Trivy...'
                         sh '''
-                        trivy fs --scanners vuln,license . > trivy-sca-report.txt || echo "Erreur scan SCA" > trivy-sca-report.txt
+                        trivy fs --scanners vuln,license . > trivy-sca-report.txt || echo "Erreur scan SCA: $?" > trivy-sca-report.txt
                         '''
                     } catch (Exception e) {
                         echo "Erreur SCA: ${e.message}"
@@ -58,8 +66,8 @@ pipeline {
             steps {
                 script {
                     try {
-                        echo 'Construction de l’image Docker...'
-                        sh 'docker build -t demo-app:latest .'
+                        echo 'Construction de l'image Docker...'
+                        sh 'docker build --no-cache -t demo-app:latest .'
                     } catch (Exception e) {
                         echo "Erreur build Docker: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
@@ -74,7 +82,7 @@ pipeline {
                     try {
                         echo 'Scan image Docker avec Trivy...'
                         sh '''
-                        trivy image --severity HIGH,CRITICAL demo-app:latest > trivy-image-report.txt || echo "Erreur scan image" > trivy-image-report.txt
+                        trivy image --severity HIGH,CRITICAL demo-app:latest > trivy-image-report.txt || echo "Erreur scan image: $?" > trivy-image-report.txt
                         '''
                     } catch (Exception e) {
                         echo "Erreur Trivy image: ${e.message}"
@@ -88,7 +96,7 @@ pipeline {
             steps {
                 script {
                     try {
-                        echo 'Téléchargement de l’image OWASP ZAP...'
+                        echo 'Téléchargement de l'image OWASP ZAP...'
                         sh 'docker pull ${ZAP_IMAGE}'
                     } catch (Exception e) {
                         echo "Erreur téléchargement ZAP: ${e.message}"
@@ -105,8 +113,12 @@ pipeline {
                         echo 'Scan ZAP en cours...'
                         sh '''
                         mkdir -p zap-output
+                        echo "Exécution du scan ZAP vers ${TARGET_URL} à $(date)"
                         docker run --network=host -v $(pwd):/zap/wrk/:rw ${ZAP_IMAGE} \
-                        zap-baseline.py -t ${TARGET_URL} -r zap-report.html -I > zap-output.log 2>&1 || true
+                        zap-baseline.py -t ${TARGET_URL} -r zap-report.html -I > zap-output.log 2>&1
+                        
+                        ZAP_EXIT_CODE=$?
+                        echo "Code de sortie ZAP: $ZAP_EXIT_CODE" >> zap-output.log
                         
                         if [ ! -f "zap-report.html" ]; then
                             grep -A 3 "WARN-NEW\\|FAIL-NEW" zap-output.log > zap-alerts.txt
@@ -119,9 +131,9 @@ pipeline {
                     } catch (Exception e) {
                         echo "Erreur scan ZAP: ${e.message}"
                         sh '''
-                        echo "<html><body><h1>Échec scan ZAP</h1></body></html>" > zap-report.html
+                        echo "<html><body><h1>Échec scan ZAP</h1><p>Erreur: $(date)</p></body></html>" > zap-report.html
                         cp zap-report.html zap-report1.html
-                        echo "Erreur scan ZAP" > zap-alerts.txt
+                        echo "Erreur scan ZAP à $(date)" > zap-alerts.txt
                         '''
                         currentBuild.result = 'UNSTABLE'
                     }
@@ -136,7 +148,7 @@ pipeline {
                         echo 'Analyse des alertes ZAP...'
                         sh '''
                         if [ ! -f "zap-alerts.txt" ]; then
-                            grep -A 5 "WARN-NEW\\|FAIL-NEW" zap-report.html > zap-alerts.txt || echo "Pas d’alertes détectées"
+                            grep -A 5 "WARN-NEW\\|FAIL-NEW" zap-report.html > zap-alerts.txt || echo "Pas d'alertes détectées à $(date)" > zap-alerts.txt
                         fi
 
                         echo "Contenu zap-alerts.txt:"
@@ -164,6 +176,7 @@ pipeline {
 
                         echo "# Rapport sécurité Demo App" > combined-security-report.txt
                         echo "## Date: $(date)" >> combined-security-report.txt
+                        echo "## Run ID: ${BUILD_ID}" >> combined-security-report.txt
 
                         echo "\n## Analyse SCA" >> combined-security-report.txt
                         cat trivy-sca-report.txt >> combined-security-report.txt || echo "Non dispo" >> combined-security-report.txt
@@ -215,7 +228,7 @@ with open('mistral-request.json', 'w') as f:
                         curl -s -X POST "${MISTRAL_API_URL}" \
                         -H "Content-Type: application/json" \
                         -H "Authorization: Bearer ${MISTRAL_API_KEY}" \
-                        -d @mistral-request.json > mistral-response.json || echo '{"error":"Erreur"}' > mistral-response.json
+                        -d @mistral-request.json > mistral-response.json || echo '{"error":"Erreur à $(date)"}' > mistral-response.json
                         '''
 
                         writeFile file: 'extract_response.py', text: '''
@@ -224,7 +237,7 @@ data = json.load(open("mistral-response.json"))
 if "choices" in data:
     print(data["choices"][0]["message"]["content"])
 else:
-    print("Aucune réponse valide.")
+    print("Aucune réponse valide à " + open("/proc/sys/kernel/random/uuid").read().strip())
 '''
                         def recommendations = sh(script: 'python3 extract_response.py', returnStdout: true).trim()
                         writeFile file: 'security-recommendations.md', text: recommendations
@@ -232,7 +245,7 @@ else:
                         echo "✅ Recommandations générées avec succès !"
                     } catch (Exception e) {
                         echo "Erreur Mistral: ${e.message}"
-                        writeFile file: 'security-recommendations.md', text: "Erreur lors de la consultation de Mistral AI."
+                        writeFile file: 'security-recommendations.md', text: "Erreur lors de la consultation de Mistral AI à $(date)."
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
