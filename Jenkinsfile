@@ -99,6 +99,26 @@ pipeline {
                 }
             }
         }
+                stage('Signer image avec Cosign') {
+            steps {
+                script {
+                    try {
+                        echo 'Signature de l\'image Docker avec Cosign...'
+                        // Ajoute ton chemin de clé ou utilise un credential Jenkins
+                        withCredentials([file(credentialsId: 'cosign-key', variable: 'COSIGN_KEY')]) {
+                            sh '''
+                            export PATH=$HOME/bin:$PATH
+                            cosign sign --key $COSIGN_KEY demo-app:latest
+                            '''
+                        }
+                    } catch (Exception e) {
+                        echo "Erreur lors de la signature Cosign: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        }
+
         stage('Scan OWASP ZAP (DAST)') {
             steps {
                 script {
