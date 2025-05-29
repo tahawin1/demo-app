@@ -1,0 +1,73 @@
+# 🔐 PILIER 2: RBAC Configuration (basé sur vos ServiceAccounts existants)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: secure-app-sa
+  namespace: ${K8S_NAMESPACE}
+  labels:
+    app: ${APP_NAME}
+    security-level: high
+    managed-by: jenkins-pipeline
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: app-role-restricted
+  namespace: ${K8S_NAMESPACE}
+  labels:
+    app: ${APP_NAME}
+    security-level: high
+    managed-by: jenkins-pipeline
+rules:
+# Permissions TRÈS limitées - principe du moindre privilège
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+  resourceNames: [] # Vide = tous les pods, mais actions limitées
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get"]
+  resourceNames: ["${APP_NAME}-config"] # Seulement sa propre configmap
+# INTERDICTIONS EXPLICITES (pas de secrets, pas de nodes, etc.)
+# Les règles ci-dessus sont restrictives par défaut
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-rolebinding-restricted
+  namespace: ${K8S_NAMESPACE}
+  labels:
+    app: ${APP_NAME}
+    security-level: high
+    managed-by: jenkins-pipeline
+subjects:
+- kind: ServiceAccount
+  name: secure-app-sa
+  namespace: ${K8S_NAMESPACE}
+roleRef:
+  kind: Role
+  name: app-role-restricted
+  apiGroup: rbac.authorization.k8s.io
+---
+# ConfigMap optionnelle pour l'application
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${APP_NAME}-config
+  namespace: ${K8S_NAMESPACE}
+  labels:
+    app: ${APP_NAME}
+    security-level: high
+    managed-by: jenkins-pipeline
+data:
+  app.properties: |
+    # Configuration sécurisée de l'application
+    security.enabled=true
+    logging.level=INFO
+    database.ssl=true
+    session.secure=true
+    csrf.enabled=true

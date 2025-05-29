@@ -1,0 +1,126 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${APP_NAME}
+  namespace: ${K8S_NAMESPACE}
+  labels:
+    app: ${APP_NAME}
+    security-level: high
+    pipeline-build: "${BUILD_NUMBER}"
+    managed-by: jenkins-pipeline
+    project: demo-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ${APP_NAME}
+  template:
+    metadata:
+      labels:
+        app: ${APP_NAME}
+        security-level: high
+        version: "${BUILD_NUMBER}"
+        tier: application
+    spec:
+      # 🔐 PILIER 2: RBAC - ServiceAccount sécurisé
+      serviceAccountName: secure-app-sa
+      automountServiceAccountToken: false
+      
+      # 🛡️ Configuration sécurité au niveau pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+      - name: ${APP_NAME}
+        image: ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}
+        imagePullPolicy: Always
+        
+        # 🛡️ PILIER 1: Security Context conteneur (basé sur vos pods sécurisés)
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+            add: ["NET_BIND_SERVICE"]
+          seccompProfile:
+            type: RuntimeDefault
+        
+        # 🔒 PILIER 3: Ressources limitées (conforme à vos LimitRange)
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+          name: http
+        
+        # ❤️ Probes de santé
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        
+        # 🌍 Variables d'environnement sécurisées
+        env:
+        - name: APP_ENV
+          value: "production"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: SECURITY_MODE
+          value: "strict"
+        - name: BUILD_NUMBER
+          value: "${BUILD_NUMBER}"
+        
+        # 💾 Volumes pour filesystem read-only
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: cache-volume
+          mountPath: /var/cache
+        - name: logs-volume
+          mountPath: /var/log
+      
+      volumes:
+      - name: tmp-volume
+        emptyDir:
+          sizeLimit: 100Mi
+      - name: cache-volume
+        emptyDir:
+          sizeLimit: 50Mi
+      - name: logs-volume
+        emptyDir:
+          sizeLimit: 100Mi
+      
+      # 🌐 Configuration réseau
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      
+      # 🏷️ Sélection de nœuds (optionnel)
+      nodeSelector:
+        kubernetes.io/os: linux

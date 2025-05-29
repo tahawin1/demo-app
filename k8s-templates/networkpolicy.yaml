@@ -1,0 +1,83 @@
+# 🔒 PILIER 3: NetworkPolicy pour isolation réseau
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ${APP_NAME}-deny-all
+  namespace: ${K8S_NAMESPACE}
+  labels:
+    app: ${APP_NAME}
+    security-level: high
+    managed-by: jenkins-pipeline
+spec:
+  podSelector:
+    matchLabels:
+      app: ${APP_NAME}
+  policyTypes:
+  - Ingress
+  - Egress
+  # Par défaut, tout est bloqué (deny-all)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ${APP_NAME}-allow-ingress
+  namespace: ${K8S_NAMESPACE}
+  labels:
+    app: ${APP_NAME}
+    security-level: high
+    managed-by: jenkins-pipeline
+spec:
+  podSelector:
+    matchLabels:
+      app: ${APP_NAME}
+  policyTypes:
+  - Ingress
+  ingress:
+  # Autoriser le trafic depuis le même namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ${K8S_NAMESPACE}
+    ports:
+    - protocol: TCP
+      port: 8080
+  # Autoriser depuis les pods avec label specific
+  - from:
+    - podSelector:
+        matchLabels:
+          access: allowed
+    ports:
+    - protocol: TCP
+      port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ${APP_NAME}-allow-dns
+  namespace: ${K8S_NAMESPACE}
+  labels:
+    app: ${APP_NAME}
+    security-level: high
+    managed-by: jenkins-pipeline
+spec:
+  podSelector:
+    matchLabels:
+      app: ${APP_NAME}
+  policyTypes:
+  - Egress
+  egress:
+  # Autoriser SEULEMENT le DNS
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Autoriser communication interne au cluster (optionnel)
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: ${K8S_NAMESPACE}
+    ports:
+    - protocol: TCP
+      port: 8080
