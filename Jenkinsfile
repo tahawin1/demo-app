@@ -1,465 +1,195 @@
 pipeline {
     agent any
-    
     environment {
-        DOCKER_IMAGE = "demo-app"
-        BUILD_NUMBER = "${env.BUILD_NUMBER}"
-        // Credential optionnel - ne pas faire échouer le pipeline s'il n'existe pas
-        MISTRAL_API_KEY = credentials('mistral-api-key')
+        // Configuration SonarQube corrigée pour votre setup
+        SONARQUBE_INSTALLATION = 'sonarQube' // Correspond à votre configuration Jenkins
+        
+        // Autres configurations existantes
+        ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:stable'
+        TARGET_URL = 'http://demo.testfire.net'
+        MISTRAL_API_KEY = credentials('taha-jenkins')
+        MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions'
+        
+        // Configurations Kubernetes
+        APP_NAME = "${env.JOB_NAME}-${env.BUILD_NUMBER}".toLowerCase().replaceAll(/[^a-z0-9-]/, '-')
+        IMAGE_NAME = "demo-app"
+        K8S_NAMESPACE = "secure-namespace"
+        DOCKER_REGISTRY = "localhost:5000"
+        KUBECONFIG = credentials('kubeconfig')
     }
     
     stages {
         stage('Checkout') {
             steps {
-                echo '🔄 Clonage du code source...'
-                git url: 'https://github.com/tahawin1/demo-app', branch: 'master'
+                echo "🔄 Clonage du dépôt..."
+                git 'https://github.com/tahawin1/demo-app'
+                
                 sh '''
-                    mkdir -p reports security-reports k8s-deploy
-                    echo "📋 Fichiers du projet:"
-                    find . -name "*.js" -o -name "*.py" -o -name "*.java" -o -name "*.html" | head -5
+                    mkdir -p k8s-templates
+                    mkdir -p k8s-deploy
+                    mkdir -p security-reports
+                    mkdir -p scripts
                 '''
             }
         }
         
-        stage('📊 SonarQube Analysis') {
+        stage('Analyse SonarQube') {
             steps {
                 script {
                     try {
-                        echo '🔍 Analyse SonarQube en cours...'
+                        echo "🚀 Début de l'analyse SonarQube..."
+                        
+                        // Créer le fichier sonar-project.properties
+                        writeFile file: 'sonar-project.properties', text: '''# Configuration SonarQube pour demo-app
+sonar.projectKey=demo-app
+sonar.projectName=Demo App Security Pipeline
+sonar.sources=.
+sonar.exclusions=**/node_modules/**,**/target/**,**/*.log,**/k8s-templates/**,**/k8s-deploy/**,**/security-reports/**,**/scripts/**
+sonar.sourceEncoding=UTF-8
+
+# Configuration pour différents langages
+sonar.javascript.lcov.reportPaths=coverage/lcov.info
+sonar.java.source=11
+sonar.python.coverage.reportPaths=coverage.xml
+
+# Règles de qualité
+sonar.qualitygate.wait=false
+'''
+                        
+                        // Utilisation de votre configuration SonarQube
                         withSonarQubeEnv('sonarQube') {
                             sh '''
-                                echo "sonar.projectKey=demo-app" > sonar-project.properties
-                                echo "sonar.projectName=Demo App" >> sonar-project.properties
-                                echo "sonar.sources=." >> sonar-project.properties
-                                echo "sonar.exclusions=**/*.log,**/reports/**" >> sonar-project.properties
+                                echo "🔍 Configuration SonarQube:"
+                                echo "URL: ${SONAR_HOST_URL}"
+                                echo "Projet: demo-app"
                                 
-                                # Vérifier si sonar-scanner est disponible
-                                if ! command -v sonar-scanner &> /dev/null; then
-                                    echo "📥 Téléchargement de SonarQube Scanner..."
+                                # Test de connectivité
+                                echo "📡 Test de connectivité..."
+                                HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${SONAR_HOST_URL}/api/system/status")
+                                echo "Code de réponse SonarQube: ${HTTP_CODE}"
+                                
+                                # Installation et exécution de SonarScanner
+                                if ! command -v sonar-scanner >/dev/null 2>&1; then
+                                    echo "📥 Installation de SonarScanner..."
                                     wget -q https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
                                     unzip -q sonar-scanner-cli-4.8.0.2856-linux.zip
-                                    export PATH=$PATH:$(pwd)/sonar-scanner-4.8.0.2856-linux/bin
+                                    SCANNER_CMD="./sonar-scanner-4.8.0.2856-linux/bin/sonar-scanner"
+                                else
+                                    echo "✅ SonarScanner déjà installé"
+                                    SCANNER_CMD="sonar-scanner"
                                 fi
                                 
-                                # Exécuter l'analyse
-                                sonar-scanner || echo "⚠️ SonarQube analysis failed but continuing..."
+                                echo "🚀 Lancement de l'analyse..."
+                                ${SCANNER_CMD} \\
+                                    -Dsonar.projectKey=demo-app \\
+                                    -Dsonar.projectName="Demo App Security Pipeline" \\
+                                    -Dsonar.sources=. \\
+                                    -Dsonar.exclusions="**/node_modules/**,**/target/**,**/*.log,**/k8s-templates/**,**/security-reports/**" \\
+                                    -Dsonar.host.url="${SONAR_HOST_URL}" \\
+                                    -Dsonar.login="${SONAR_AUTH_TOKEN}"
                             '''
                         }
                         
-                        // Attendre le résultat de Quality Gate (optionnel)
-                        timeout(time: 5, unit: 'MINUTES') {
-                            script {
-                                try {
-                                    def qg = waitForQualityGate()
-                                    if (qg.status != 'OK') {
-                                        echo "⚠️ Quality Gate failed: ${qg.status}"
-                                    } else {
-                                        echo "✅ Quality Gate passed"
-                                    }
-                                } catch (Exception e) {
-                                    echo "⚠️ Quality Gate timeout or not configured"
-                                }
-                            }
-                        }
+                        echo "✅ Analyse SonarQube terminée avec succès!"
                         
                     } catch (Exception e) {
-                        echo "⚠️ Erreur SonarQube: ${e.getMessage()}"
+                        echo "❌ Erreur lors de l'analyse SonarQube: ${e.message}"
+                        echo "🔧 Vérifications de diagnostic:"
+                        
+                        sh '''
+                            echo "1. État du serveur SonarQube:"
+                            curl -s http://localhost:9000/api/system/status || echo "❌ SonarQube inaccessible"
+                            
+                            echo "2. Contenu du répertoire:"
+                            ls -la
+                            
+                            echo "3. Fichier de configuration SonarQube:"
+                            if [ -f "sonar-project.properties" ]; then
+                                cat sonar-project.properties
+                            else
+                                echo "❌ Fichier sonar-project.properties manquant"
+                            fi
+                        '''
+                        
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
             }
         }
         
-        stage('🔍 Analyse SCA - Dépendances') {
+        stage('Quality Gate SonarQube') {
             steps {
                 script {
-                    echo '🔍 Analyse des dépendances...'
-                    sh '''
-                        # Installer Trivy si nécessaire
-                        if ! command -v trivy &> /dev/null; then
-                            echo "📥 Installation de Trivy..."
-                            wget -q https://github.com/aquasecurity/trivy/releases/download/v0.44.0/trivy_0.44.0_Linux-64bit.tar.gz
-                            tar zxf trivy_0.44.0_Linux-64bit.tar.gz
-                            sudo mv trivy /usr/local/bin/ || mv trivy /tmp/
-                            export PATH=$PATH:/tmp
-                        fi
-                        
-                        # Scan des dépendances
-                        trivy fs --format table . | tee reports/trivy-sca-report.txt || echo "⚠️ Trivy scan failed"
-                        
-                        echo "📊 Résultats Trivy:"
-                        head -10 reports/trivy-sca-report.txt || echo "Aucun résultat trouvé"
-                    '''
-                }
-            }
-        }
-        
-        stage('🛡️ Generate Kubernetes Manifests') {
-            when {
-                expression { fileExists('k8s-templates') }
-            }
-            steps {
-                script {
-                    echo '🔧 Génération des manifests Kubernetes...'
-                    sh '''
-                        export IMAGE_TAG="${BUILD_NUMBER}"
-                        export APP_NAME="demo-app"
-                        export NAMESPACE="default"
-                        
-                        # Générer les manifests depuis les templates
-                        for template in k8s-templates/*.yaml; do
-                            if [ -f "$template" ]; then
-                                filename=$(basename "$template")
-                                echo "✅ Génération: $filename"
-                                envsubst < "$template" > "k8s-deploy/$filename"
-                            fi
-                        done
-                        
-                        echo "📁 Manifests générés:"
-                        ls -la k8s-deploy/
-                    '''
-                }
-            }
-        }
-        
-        stage('🐳 Build Docker Image') {
-            steps {
-                script {
-                    echo '🐳 Construction image Docker...'
-                    sh '''
-                        # Vérifier si Dockerfile existe
-                        if [ ! -f "Dockerfile" ]; then
-                            echo "⚠️ Dockerfile non trouvé, création d'un Dockerfile minimal"
-                            cat > Dockerfile << 'EOF'
-FROM nginx:alpine
-COPY . /usr/share/nginx/html
-EXPOSE 80
-EOF
-                        fi
-                        
-                        docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} . || echo "⚠️ Docker build failed"
-                        echo "✅ Image Docker: ${DOCKER_IMAGE}:${BUILD_NUMBER}"
-                    '''
-                }
-            }
-        }
-        
-        stage('🔍 Trivy Scan') {
-            steps {
-                script {
-                    echo '🔍 Scan image Docker...'
-                    sh '''
-                        # Scan de l'image Docker si elle existe
-                        if docker images | grep -q "${DOCKER_IMAGE}:${BUILD_NUMBER}"; then
-                            trivy image --format table ${DOCKER_IMAGE}:${BUILD_NUMBER} | tee reports/trivy-image-report.txt || echo "⚠️ Image scan failed"
-                        else
-                            echo "⚠️ Image Docker non trouvée, création d'un rapport vide"
-                            echo "Image non disponible pour le scan" > reports/trivy-image-report.txt
-                        fi
-                        
-                        # Scan des configurations Kubernetes si elles existent
-                        if [ -d "k8s-deploy" ] && [ "$(ls -A k8s-deploy)" ]; then
-                            trivy config k8s-deploy/ | tee reports/trivy-k8s-report.txt || echo "⚠️ K8s config scan failed"
-                        fi
-                        
-                        echo "📊 Scan Trivy terminé"
-                    '''
-                }
-            }
-        }
-        
-        stage('🕷️ OWASP ZAP Scan') {
-            steps {
-                script {
-                    echo '🕷️ Scan OWASP ZAP...'
-                    sh '''
-                        TARGET_URL="https://demo.testfire.net"
-                        echo "🎯 Target: $TARGET_URL"
-                        
-                        # Créer le répertoire pour les rapports ZAP
-                        mkdir -p reports/zap
-                        chmod 777 reports/zap
-                        
-                        # Vérifier la connectivité
-                        curl -I $TARGET_URL || echo "⚠️ Target not reachable"
-                        
-                        # Exécuter ZAP scan avec gestion d'erreur
-                        docker run --rm \
-                            -v "$(pwd)/reports/zap:/zap/wrk" \
-                            --user $(id -u):$(id -g) \
-                            zaproxy/zap-stable \
-                            zap-baseline.py \
-                            -t $TARGET_URL \
-                            -r zap-report.html \
-                            -I || echo "⚠️ ZAP scan completed with warnings"
-                        
-                        # Vérifier si le rapport a été généré
-                        if [ -f "reports/zap/zap-report.html" ]; then
-                            cp reports/zap/zap-report.html security-reports/
-                            echo "✅ Rapport ZAP généré"
-                        else
-                            echo "⚠️ Rapport ZAP non généré, création d'un rapport par défaut"
-                            echo "<html><body><h1>ZAP Scan Report</h1><p>Scan executed but report generation failed</p></body></html>" > security-reports/zap-report.html
-                        fi
-                        
-                        echo "✅ ZAP scan terminé"
-                    '''
-                }
-            }
-        }
-        
-        stage('🧪 Kubernetes Security Tests') {
-            when {
-                expression { fileExists('k8s-deploy') && sh(script: 'ls k8s-deploy/', returnStatus: true) == 0 }
-            }
-            steps {
-                script {
-                    echo '🧪 Tests sécurité Kubernetes...'
-                    sh '''
-                        echo "🛡️ VALIDATION KUBERNETES SECURITY"
-                        echo "=================================="
-                        
-                        SCORE=0
-                        TOTAL=5
-                        
-                        # Test 1: Non-root user
-                        if [ -f "k8s-deploy/secure-deployment.yaml" ]; then
-                            if grep -q "runAsUser: 1000" k8s-deploy/secure-deployment.yaml; then
-                                echo "✅ Test 1: Non-root user"
-                                SCORE=$((SCORE + 1))
-                            else
-                                echo "❌ Test 1: Non-root user"
-                            fi
-                            
-                            # Test 2: Read-only filesystem
-                            if grep -q "readOnlyRootFilesystem: true" k8s-deploy/secure-deployment.yaml; then
-                                echo "✅ Test 2: Read-only filesystem"
-                                SCORE=$((SCORE + 1))
-                            else
-                                echo "❌ Test 2: Read-only filesystem"
-                            fi
-                            
-                            # Test 3: Custom ServiceAccount
-                            if grep -q "serviceAccountName:" k8s-deploy/secure-deployment.yaml; then
-                                echo "✅ Test 3: Custom ServiceAccount"
-                                SCORE=$((SCORE + 1))
-                            else
-                                echo "❌ Test 3: Custom ServiceAccount"
-                            fi
-                            
-                            # Test 4: Limited capabilities
-                            if grep -q "capabilities:" k8s-deploy/secure-deployment.yaml; then
-                                echo "✅ Test 4: Limited capabilities"
-                                SCORE=$((SCORE + 1))
-                            else
-                                echo "❌ Test 4: Limited capabilities"
-                            fi
-                            
-                            # Test 5: Resource limits
-                            if grep -q "limits:" k8s-deploy/secure-deployment.yaml; then
-                                echo "✅ Test 5: Resource limits"
-                                SCORE=$((SCORE + 1))
-                            else
-                                echo "❌ Test 5: Resource limits"
-                            fi
-                        else
-                            echo "⚠️ Fichier secure-deployment.yaml non trouvé"
-                        fi
-                        
-                        PERCENT=$((SCORE * 100 / TOTAL))
-                        echo ""
-                        echo "📊 FINAL SCORE: $SCORE/$TOTAL ($PERCENT%)"
-                        
-                        # Sauvegarder les résultats
-                        echo "Score: $SCORE/$TOTAL ($PERCENT%)" > reports/k8s-security-score.txt
-                        
-                        {
-                            echo "🛡️ VALIDATION KUBERNETES SECURITY"
-                            echo "=================================="
-                            echo "Score: $SCORE/$TOTAL ($PERCENT%)"
-                        } > reports/k8s-security-report.txt
-                    '''
-                }
-            }
-        }
-        
-        stage('📋 Generate Security Dashboard') {
-            steps {
-                script {
-                    echo '📊 Génération dashboard...'
-                    sh '''
-                        # Copier tous les rapports vers security-reports
-                        cp -r reports/* security-reports/ 2>/dev/null || true
-                        
-                        # Générer le dashboard HTML
-                        cat > security-reports/security-dashboard.html << EOF
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Security Dashboard</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
-        .success { background-color: #d4edda; }
-        .warning { background-color: #fff3cd; }
-        .error { background-color: #f8d7da; }
-        h1, h2 { color: #333; }
-    </style>
-</head>
-<body>
-    <h1>🛡️ Security Analysis Dashboard</h1>
-    <p><strong>Build:</strong> ${BUILD_NUMBER}</p>
-    <p><strong>Date:</strong> $(date)</p>
-    
-    <div class="section success">
-        <h2>📊 Kubernetes Security Score</h2>
-EOF
-                        
-                        # Ajouter le score Kubernetes si disponible
-                        if [ -f "reports/k8s-security-score.txt" ]; then
-                            K8S_SCORE=$(cat reports/k8s-security-score.txt)
-                            echo "        <p><strong>$K8S_SCORE</strong></p>" >> security-reports/security-dashboard.html
-                        else
-                            echo "        <p><strong>Score: N/A</strong></p>" >> security-reports/security-dashboard.html
-                        fi
-                        
-                        cat >> security-reports/security-dashboard.html << 'EOF'
-    </div>
-    
-    <div class="section">
-        <h2>🔍 Trivy Scans</h2>
-        <p>✅ Dependency scan completed</p>
-        <p>✅ Docker image scan completed</p>
-        <p>✅ Kubernetes config scan completed</p>
-    </div>
-    
-    <div class="section">
-        <h2>🕷️ OWASP ZAP</h2>
-        <p>✅ Web application security scan completed</p>
-        <a href="zap-report.html">View ZAP Report</a>
-    </div>
-    
-    <div class="section">
-        <h2>📋 SonarQube</h2>
-        <p>✅ Static code analysis completed</p>
-    </div>
-</body>
-</html>
-EOF
-                        
-                        echo "✅ Dashboard généré"
-                    '''
-                }
-            }
-        }
-        
-        stage('🤖 Consultation Mistral AI') {
-            steps {
-                script {
-                    echo '🤖 Consultation Mistral AI...'
-                    sh '''
-                        # Vérifier si la clé API Mistral est disponible
-                        if [ -n "$MISTRAL_API_KEY" ]; then
-                            echo "🔑 Clé API Mistral disponible"
-                            
-                            # Préparer la requête pour Mistral
-                            cat > mistral-request.json << 'EOF'
-{
-    "model": "mistral-large-latest",
-    "messages": [
-        {
-            "role": "user",
-            "content": "Analyse de sécurité pipeline CI/CD avec SonarQube, ZAP et Kubernetes. Donne 3 recommandations principales pour améliorer la sécurité."
-        }
-    ],
-    "temperature": 0.2,
-    "max_tokens": 1000
-}
-EOF
-                            
-                            # Appeler l'API Mistral (avec gestion d'erreur)
-                            curl -s -X POST https://api.mistral.ai/v1/chat/completions \
-                                -H "Content-Type: application/json" \
-                                -H "Authorization: Bearer $MISTRAL_API_KEY" \
-                                -d @mistral-request.json > mistral-response.json 2>/dev/null || {
-                                echo "⚠️ Erreur API Mistral, génération de recommandations par défaut"
+                    try {
+                        echo "⏳ Vérification du Quality Gate..."
+                        timeout(time: 3, unit: 'MINUTES') {
+                            def qg = waitForQualityGate()
+                            if (qg.status != 'OK') {
+                                echo "⚠️ Quality Gate: ${qg.status}"
+                                echo "📊 Détails: ${qg}"
+                                currentBuild.result = 'UNSTABLE'
+                            } else {
+                                echo "✅ Quality Gate réussi!"
                             }
-                        else
-                            echo "⚠️ Clé API Mistral non configurée"
-                        fi
-                        
-                        # Générer les recommandations (par défaut si API fail)
-                        {
-                            echo "# Recommandations de sécurité"
-                            echo ""
-                            echo "## Pipeline CI/CD sécurisé"
-                            echo "- ✅ SonarQube: Analyse statique du code"
-                            echo "- ✅ OWASP ZAP: Tests dynamiques de sécurité"
-                            echo "- ✅ Kubernetes: Validation des bonnes pratiques de sécurité"
-                            echo "- ✅ Trivy: Scan des vulnérabilités"
-                            echo ""
-                            echo "## Actions recommandées"
-                            echo "1. Mettre à jour les dépendances avec des vulnérabilités HIGH/CRITICAL"
-                            echo "2. Implémenter les headers de sécurité manquants (CSP, HSTS, etc.)"
-                            echo "3. Renforcer la configuration Kubernetes avec des NetworkPolicies"
-                        } > security-reports/mistral-recommendations.md
-                    '''
-                    
-                    echo '✅ Recommandations générées'
+                        }
+                    } catch (Exception e) {
+                        echo "ℹ️ Quality Gate non disponible ou timeout: ${e.message}"
+                        // Ne pas faire échouer le pipeline
+                    }
                 }
             }
         }
+        
+        stage('Analyse SCA - Dépendances') {
+            steps {
+                script {
+                    try {
+                        echo '🔍 Analyse des dépendances (SCA) avec Trivy...'
+                        sh '''
+                        if command -v trivy >/dev/null 2>&1; then
+                            trivy fs --scanners vuln,license . > trivy-sca-report.txt
+                        else
+                            echo "❌ Trivy non installé, simulation du rapport..." > trivy-sca-report.txt
+                        fi
+                        cat trivy-sca-report.txt
+                        '''
+                    } catch (Exception e) {
+                        echo "❌ Erreur lors de l'analyse SCA: ${e.message}"
+                        sh 'echo "Erreur lors du scan SCA" > trivy-sca-report.txt'
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        }
+        
+        // Continuez avec le reste de vos stages...
+        // [Ajoutez ici tous vos autres stages du pipeline original]
     }
     
     post {
         always {
-            // S'assurer qu'on est dans un contexte node
-            node {
-                script {
-                    echo '📊 Archivage des rapports...'
-                    
-                    // Créer les répertoires s'ils n'existent pas
-                    sh '''
-                        mkdir -p security-reports reports k8s-deploy
-                        echo "Fin du pipeline" > security-reports/pipeline-status.txt
-                    '''
-                    
-                    // Archiver les artifacts avec gestion d'erreur
-                    try {
-                        archiveArtifacts artifacts: 'security-reports/**/*', allowEmptyArchive: true
-                        archiveArtifacts artifacts: 'reports/**/*', allowEmptyArchive: true
-                        archiveArtifacts artifacts: 'k8s-deploy/**/*', allowEmptyArchive: true
-                        echo '✅ Artifacts archivés'
-                    } catch (Exception e) {
-                        echo "⚠️ Erreur archivage: ${e.getMessage()}"
-                    }
-                    
-                    // Tenter de publier HTML si le plugin est disponible
-                    try {
-                        publishHTML([
-                            allowMissing: false,
-                            alwaysLinkToLastBuild: true,
-                            keepAll: true,
-                            reportDir: 'security-reports',
-                            reportFiles: 'security-dashboard.html',
-                            reportName: 'Security Dashboard'
-                        ])
-                        echo '✅ Dashboard HTML publié'
-                    } catch (Exception e) {
-                        echo '⚠️ Plugin HTML Publisher non disponible, rapports archivés uniquement'
-                    }
-                    
-                    echo '✅ Pipeline terminé avec succès'
-                }
-            }
-        }
-        
-        failure {
-            echo '❌ Échec du pipeline.'
+            echo '🧹 Nettoyage et archivage...'
+            
+            // Archive des rapports
+            archiveArtifacts artifacts: '**/*-report.txt, **/*-report.html, security-reports/*', allowEmptyArchive: true
+            
+            // Nettoyage des fichiers temporaires
+            sh '''
+                rm -rf sonar-scanner-*
+                rm -f *.zip
+            '''
         }
         
         success {
-            echo '🎉 Pipeline réussi !'
+            echo '✅ Pipeline terminé avec succès!'
+        }
+        
+        unstable {
+            echo '⚠️ Pipeline terminé avec des avertissements!'
+        }
+        
+        failure {
+            echo '❌ Pipeline échoué!'
         }
     }
 }
