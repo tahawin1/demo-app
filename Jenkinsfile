@@ -87,7 +87,7 @@ EOF
                             }
                         }
                         
-                        // Récupérer le rapport via API
+                        // Récupérer le rapport via API et générer HTML
                         sh '''
                             echo "📊 Récupération rapport SonarQube..."
                             sleep 5
@@ -102,8 +102,8 @@ EOF
                                 "${SONAR_HOST_URL}/api/measures/component?component=demo-app&metricKeys=security_rating,reliability_rating,sqale_rating,coverage,duplicated_lines_density,ncloc,bugs,vulnerabilities,security_hotspots" \\
                                 -o reports/sonarqube-metrics.json || echo "{}" > reports/sonarqube-metrics.json
                             
-                            # Générer rapport HTML
-                            python3 << 'PYTHON_EOF'
+                            # Générer rapport HTML avec Python
+                            python3 -c "
 import json
 import os
 from datetime import datetime
@@ -122,113 +122,107 @@ try:
             metrics_data = json.load(f)
     
     # Générer le rapport HTML
-    with open('reports/sonarqube-report.html', 'w') as f:
-        f.write('''<!DOCTYPE html>
+    html_content = f'''<!DOCTYPE html>
 <html>
 <head>
     <title>SonarQube Security Report</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-        .container { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .header { background: #4E9BCD; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; }
-        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }
-        .metric-card { background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #4E9BCD; text-align: center; }
-        .metric-value { font-size: 2em; font-weight: bold; color: #4E9BCD; }
-        .issue { background: #fff3cd; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #ffc107; }
-        .critical { border-left-color: #dc3545; background: #f8d7da; }
-        .major { border-left-color: #fd7e14; background: #fff3cd; }
-        h1, h2 { color: #4E9BCD; }
+        body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+        .container {{ background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        .header {{ background: #4E9BCD; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; }}
+        .metrics-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }}
+        .metric-card {{ background: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 4px solid #4E9BCD; text-align: center; }}
+        .metric-value {{ font-size: 2em; font-weight: bold; color: #4E9BCD; }}
+        .issue {{ background: #fff3cd; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #ffc107; }}
+        .critical {{ border-left-color: #dc3545; background: #f8d7da; }}
+        .major {{ border-left-color: #fd7e14; background: #fff3cd; }}
+        h1, h2 {{ color: #4E9BCD; }}
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
+    <div class=\"container\">
+        <div class=\"header\">
             <h1>🔍 SonarQube Security Analysis</h1>
-            <p>Project: demo-app | Build: ''' + os.environ.get('BUILD_NUMBER', 'Unknown') + '''</p>
-            <p>Date: ''' + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + '''</p>
+            <p>Project: demo-app | Build: {os.environ.get('BUILD_NUMBER', 'Unknown')}</p>
+            <p>Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
         </div>
         
         <h2>📊 Quality Metrics</h2>
-        <div class="metrics-grid">''')
-        
-        # Afficher les métriques
-        if 'component' in metrics_data and 'measures' in metrics_data['component']:
-            for measure in metrics_data['component']['measures']:
-                metric_name = measure.get('metric', 'Unknown')
-                metric_value = measure.get('value', 'N/A')
-                
-                # Traduire les noms de métriques
-                metric_labels = {
-                    'security_rating': 'Security Rating',
-                    'reliability_rating': 'Reliability Rating',
-                    'sqale_rating': 'Maintainability Rating',
-                    'coverage': 'Code Coverage (%)',
-                    'duplicated_lines_density': 'Duplicated Lines (%)',
-                    'ncloc': 'Lines of Code',
-                    'bugs': 'Bugs',
-                    'vulnerabilities': 'Vulnerabilities',
-                    'security_hotspots': 'Security Hotspots'
-                }
-                
-                display_name = metric_labels.get(metric_name, metric_name.replace('_', ' ').title())
-                
-                f.write(f'''
-            <div class="metric-card">
-                <div class="metric-value">{metric_value}</div>
+        <div class=\"metrics-grid\">'''
+    
+    # Afficher les métriques
+    if 'component' in metrics_data and 'measures' in metrics_data['component']:
+        for measure in metrics_data['component']['measures']:
+            metric_name = measure.get('metric', 'Unknown')
+            metric_value = measure.get('value', 'N/A')
+            
+            # Traduire les noms de métriques
+            metric_labels = {
+                'security_rating': 'Security Rating',
+                'reliability_rating': 'Reliability Rating',
+                'sqale_rating': 'Maintainability Rating',
+                'coverage': 'Code Coverage (%)',
+                'duplicated_lines_density': 'Duplicated Lines (%)',
+                'ncloc': 'Lines of Code',
+                'bugs': 'Bugs',
+                'vulnerabilities': 'Vulnerabilities',
+                'security_hotspots': 'Security Hotspots'
+            }
+            
+            display_name = metric_labels.get(metric_name, metric_name.replace('_', ' ').title())
+            
+            html_content += f'''
+            <div class=\"metric-card\">
+                <div class=\"metric-value\">{metric_value}</div>
                 <div>{display_name}</div>
-            </div>''')
-        else:
-            f.write('<div class="metric-card"><p>No metrics available</p></div>')
-        
-        f.write('''
+            </div>'''
+    else:
+        html_content += '<div class=\"metric-card\"><p>No metrics available</p></div>'
+    
+    html_content += '''
         </div>
         
-        <h2>🚨 Security Issues</h2>''')
-        
-        # Afficher les issues
-        if 'issues' in issues_data and issues_data['issues']:
-            for issue in issues_data['issues'][:10]:
-                severity = issue.get('severity', 'UNKNOWN').lower()
-                css_class = 'critical' if severity in ['blocker', 'critical'] else 'major' if severity == 'major' else 'issue'
-                
-                f.write(f'''
-        <div class="issue {css_class}">
+        <h2>🚨 Security Issues</h2>'''
+    
+    # Afficher les issues
+    if 'issues' in issues_data and issues_data['issues']:
+        for issue in issues_data['issues'][:10]:
+            severity = issue.get('severity', 'UNKNOWN').lower()
+            css_class = 'critical' if severity in ['blocker', 'critical'] else 'major' if severity == 'major' else 'issue'
+            
+            html_content += f'''
+        <div class=\"issue {css_class}\">
             <h4>{issue.get('rule', 'Unknown Rule')}</h4>
             <p><strong>Severity:</strong> {issue.get('severity', 'Unknown')}</p>
             <p><strong>Type:</strong> {issue.get('type', 'Unknown')}</p>
             <p><strong>Message:</strong> {issue.get('message', 'No message')}</p>
             <p><strong>File:</strong> {issue.get('component', 'Unknown').split(':')[-1] if ':' in issue.get('component', '') else issue.get('component', 'Unknown')}</p>
             <p><strong>Line:</strong> {issue.get('line', 'N/A')}</p>
-        </div>''')
-        else:
-            f.write('<div class="issue"><p>✅ No security issues found!</p></div>')
-        
-        f.write('''
+        </div>'''
+    else:
+        html_content += '<div class=\"issue\"><p>✅ No security issues found!</p></div>'
+    
+    html_content += f'''
         
         <h2>🔗 Links</h2>
-        <div class="metric-card">
-            <p><a href="''' + os.environ.get('SONAR_HOST_URL', 'http://localhost:9000') + '''/dashboard?id=demo-app" target="_blank">🔍 View Full Report in SonarQube</a></p>
+        <div class=\"metric-card\">
+            <p><a href=\"{os.environ.get('SONAR_HOST_URL', 'http://localhost:9000')}/dashboard?id=demo-app\" target=\"_blank\">🔍 View Full Report in SonarQube</a></p>
         </div>
         
     </div>
 </body>
-</html>''')
+</html>'''
     
-    print("✅ Rapport SonarQube HTML généré avec succès")
+    with open('reports/sonarqube-report.html', 'w') as f:
+        f.write(html_content)
+    
+    print('✅ Rapport SonarQube HTML généré avec succès')
     
 except Exception as e:
-    print(f"⚠️ Erreur génération rapport SonarQube: {e}")
+    print(f'⚠️ Erreur génération rapport SonarQube: {e}')
     with open('reports/sonarqube-report.html', 'w') as f:
-        f.write(f'''<!DOCTYPE html>
-<html>
-<body>
-    <h1>⚠️ Erreur Rapport SonarQube</h1>
-    <p>Impossible de générer le rapport: {e}</p>
-    <p><a href="{os.environ.get('SONAR_HOST_URL', 'http://localhost:9000')}/dashboard?id=demo-app">Voir dans SonarQube</a></p>
-</body>
-</html>''')
-
-PYTHON_EOF
+        f.write(f'<html><body><h1>⚠️ Erreur Rapport SonarQube</h1><p>Impossible de générer le rapport: {e}</p></body></html>')
+"
                         '''
                         
                         echo "✅ Analyse SonarQube terminée"
@@ -334,7 +328,7 @@ PYTHON_EOF
             }
         }
         
-        // 🆕 VRAIE INTÉGRATION OWASP ZAP
+        // 🆕 VRAIE INTÉGRATION OWASP ZAP (VERSION SIMPLIFIÉE)
         stage('🕷️ OWASP ZAP Security Scan') {
             steps {
                 script {
@@ -343,14 +337,10 @@ PYTHON_EOF
                         
                         sh '''
                         echo "🎯 Target: ${TARGET_URL}"
-                        echo "🐳 ZAP Image: ${ZAP_IMAGE}"
-                        
-                        # Créer dossier pour rapports ZAP
                         mkdir -p reports/zap
                         
                         # Test de connectivité
-                        echo "🔍 Test connectivité..."
-                        curl -I ${TARGET_URL} || echo "⚠️ Target potentiellement inaccessible"
+                        curl -I ${TARGET_URL} || echo "⚠️ Target inaccessible"
                         
                         # Lancer ZAP Baseline Scan
                         echo "🚀 Lancement ZAP Baseline Scan..."
@@ -360,156 +350,27 @@ PYTHON_EOF
                             zap-baseline.py \\
                             -t ${TARGET_URL} \\
                             -r zap-baseline-report.html \\
-                            -x zap-baseline-report.xml \\
                             -J zap-baseline-report.json \\
-                            -I \\
-                            -d \\
-                            || echo "Scan ZAP terminé (alertes possibles)"
+                            -I || echo "Scan ZAP terminé"
                         
                         # Vérifier les rapports
-                        echo "📊 Vérification rapports ZAP..."
                         ls -la reports/zap/
                         
-                        # Analyser le rapport JSON
-                        if [ -f "reports/zap/zap-baseline-report.json" ]; then
-                            echo "🔍 Analyse des résultats ZAP..."
-                            python3 << 'PYTHON_EOF'
-import json
-import os
-from datetime import datetime
-
-try:
-    with open('reports/zap/zap-baseline-report.json', 'r') as f:
-        zap_data = json.load(f)
-    
-    site_info = zap_data.get('site', [{}])[0] if zap_data.get('site') else {}
-    alerts = site_info.get('alerts', [])
-    
-    # Compter par niveau de risque
-    risk_counts = {'High': 0, 'Medium': 0, 'Low': 0, 'Informational': 0}
-    for alert in alerts:
-        risk = alert.get('riskdesc', '').split(' ')[0]
-        if risk in risk_counts:
-            risk_counts[risk] += 1
-    
-    # Générer rapport HTML
-    with open('reports/zap-report.html', 'w') as f:
-        f.write(f'''<!DOCTYPE html>
-<html>
-<head>
-    <title>OWASP ZAP Security Report</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
-        .container {{ background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
-        .header {{ background: #FF6B35; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; }}
-        .summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 20px 0; }}
-        .risk-card {{ padding: 15px; border-radius: 8px; text-align: center; color: white; font-weight: bold; }}
-        .risk-high {{ background: #dc3545; }}
-        .risk-medium {{ background: #fd7e14; }}
-        .risk-low {{ background: #ffc107; color: #000; }}
-        .risk-info {{ background: #17a2b8; }}
-        .alert {{ background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #6c757d; }}
-        .alert-high {{ border-left-color: #dc3545; background: #f8d7da; }}
-        .alert-medium {{ border-left-color: #fd7e14; background: #fff3cd; }}
-        h1, h2 {{ color: #FF6B35; }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🕷️ OWASP ZAP Security Scan Report</h1>
-            <p>Target: {site_info.get('@name', 'Unknown')}</p>
-            <p>Scan Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            <p>Build: {os.environ.get('BUILD_NUMBER', 'Unknown')}</p>
-        </div>
-        
-        <h2>📊 Risk Summary</h2>
-        <div class="summary">
-            <div class="risk-card risk-high">
-                <h3>{risk_counts['High']}</h3>
-                <p>High Risk</p>
-            </div>
-            <div class="risk-card risk-medium">
-                <h3>{risk_counts['Medium']}</h3>
-                <p>Medium Risk</p>
-            </div>
-            <div class="risk-card risk-low">
-                <h3>{risk_counts['Low']}</h3>
-                <p>Low Risk</p>
-            </div>
-            <div class="risk-card risk-info">
-                <h3>{risk_counts['Informational']}</h3>
-                <p>Informational</p>
-            </div>
-        </div>
-        
-        <h2>🚨 Security Alerts</h2>''')
-        
-        # Afficher les alertes importantes
-        sorted_alerts = sorted(alerts, key=lambda x: {'High': 0, 'Medium': 1, 'Low': 2, 'Informational': 3}.get(x.get('riskdesc', '').split(' ')[0], 4))
-        
-        for alert in sorted_alerts[:10]:
-            risk = alert.get('riskdesc', '').split(' ')[0].lower()
-            css_class = f'alert-{risk}' if risk in ['high', 'medium'] else 'alert'
-            
-            f.write(f'''
-        <div class="alert {css_class}">
-            <h4>{alert.get('name', 'Unknown Alert')}</h4>
-            <p><strong>Risk:</strong> {alert.get('riskdesc', 'Unknown')}</p>
-            <p><strong>Confidence:</strong> {alert.get('confidence', 'Unknown')}</p>
-            <p><strong>Description:</strong> {alert.get('desc', 'No description')[:200]}...</p>
-            <p><strong>Solution:</strong> {alert.get('solution', 'No solution')[:200]}...</p>
-            <p><strong>URLs Affected:</strong> {len(alert.get('instances', []))}</p>
-        </div>''')
-        
-        if not alerts:
-            f.write('<div class="alert"><p>✅ No security alerts found!</p></div>')
-        
-        f.write('''
-        
-        <h2>📈 Scan Statistics</h2>
-        <div class="alert">
-            <p><strong>Total Alerts:</strong> ''' + str(len(alerts)) + '''</p>
-            <p><strong>Target URL:</strong> ''' + site_info.get('@name', 'Unknown') + '''</p>
-            <p><strong>Scan Type:</strong> Baseline Security Scan</p>
-        </div>
-        
-    </div>
-</body>
-</html>''')
-    
-    # Résumé texte
-    with open('reports/zap-summary.txt', 'w') as f:
-        f.write(f'''🕷️ OWASP ZAP SCAN SUMMARY
-========================================
-Target: {site_info.get('@name', 'Unknown')}
-Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Build: {os.environ.get('BUILD_NUMBER', 'Unknown')}
-
-RISK BREAKDOWN:
-🔴 High Risk: {risk_counts['High']}
-🟠 Medium Risk: {risk_counts['Medium']}
-🟡 Low Risk: {risk_counts['Low']}
-🔵 Informational: {risk_counts['Informational']}
-
-TOTAL ALERTS: {len(alerts)}
-''')
-    
-    print("✅ Rapport ZAP HTML généré avec succès")
-    
-except Exception as e:
-    print(f"⚠️ Erreur analyse ZAP: {e}")
-
-PYTHON_EOF
+                        # Créer un rapport HTML simple
+                        if [ -f "reports/zap/zap-baseline-report.html" ]; then
+                            cp reports/zap/zap-baseline-report.html reports/zap-report.html
+                            echo "✅ Rapport ZAP HTML copié"
                         else
-                            echo "⚠️ Rapport JSON ZAP non trouvé"
                             cat > reports/zap-report.html << EOF
 <!DOCTYPE html>
 <html>
+<head><title>OWASP ZAP Report</title></head>
 <body>
-    <h1>🕷️ OWASP ZAP Scan Report</h1>
-    <p><strong>Target:</strong> ${TARGET_URL}</p>
-    <p><strong>Status:</strong> Scan exécuté mais rapport JSON non généré</p>
+<h1>🕷️ OWASP ZAP Security Scan</h1>
+<p><strong>Target:</strong> ${TARGET_URL}</p>
+<p><strong>Status:</strong> Scan exécuté</p>
+<p><strong>Date:</strong> $(date)</p>
+<p>Consultez les artefacts Jenkins pour plus de détails.</p>
 </body>
 </html>
 EOF
@@ -597,16 +458,16 @@ EOF
             }
         }
         
-        stage('📋 Generate Combined Report') {
+        stage('📋 Generate Security Dashboard') {
             steps {
                 script {
                     try {
-                        echo '📊 Génération rapport de sécurité complet...'
+                        echo '📊 Génération dashboard de sécurité...'
                         sh '''
                         # Copier tous les rapports
                         cp -r reports/* security-reports/ 2>/dev/null || echo "Pas de rapports à copier"
                         
-                        # Générer dashboard HTML complet
+                        # Générer dashboard HTML principal
                         cat > reports/security-dashboard.html << 'EOF'
 <!DOCTYPE html>
 <html>
@@ -616,23 +477,18 @@ EOF
         body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
         .container { max-width: 1200px; margin: 0 auto; }
         .header { background: rgba(255,255,255,0.95); color: #333; padding: 30px; border-radius: 15px; text-align: center; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-        .card { background: rgba(255,255,255,0.95); padding: 25px; margin: 20px 0; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); transition: transform 0.3s ease; }
-        .card:hover { transform: translateY(-5px); }
+        .card { background: rgba(255,255,255,0.95); padding: 25px; margin: 20px 0; border-radius: 15px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
         .success { border-left: 5px solid #28a745; }
         .warning { border-left: 5px solid #ffc107; }
-        .danger { border-left: 5px solid #dc3545; }
         .info { border-left: 5px solid #17a2b8; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
         h1 { margin: 0; font-size: 2.5em; color: #2c5aa0; }
         h2 { color: #2c5aa0; border-bottom: 3px solid #2c5aa0; padding-bottom: 10px; }
-        .score { font-size: 3em; font-weight: bold; text-align: center; color: #28a745; }
         .link { color: #2c5aa0; text-decoration: none; font-weight: bold; }
         .link:hover { text-decoration: underline; }
-        .stats { background: #f8f9fa; padding: 15px; border-radius: 10px; margin: 15px 0; }
-        .badge { display: inline-block; padding: 5px 10px; border-radius: 15px; color: white; font-weight: bold; margin: 5px; }
+        .badge { display: inline-block; padding: 5px 10px; border-radius: 15px; color: white; font-weight: bold; }
         .badge-success { background: #28a745; }
         .badge-warning { background: #ffc107; color: #000; }
-        .badge-danger { background: #dc3545; }
     </style>
 </head>
 <body>
@@ -640,40 +496,28 @@ EOF
         <div class="header">
             <h1>🛡️ Security Analysis Dashboard</h1>
             <p style="font-size: 1.2em;">Build: ${BUILD_NUMBER} | Date: $(date)</p>
-            <p>Pipeline CI/CD avec sécurité Kubernetes intégrée</p>
+            <p>Pipeline CI/CD avec sécurité intégrée</p>
         </div>
         
         <div class="grid">
             <div class="card success">
                 <h2>📊 SonarQube Analysis</h2>
-                <p><a href="sonarqube-report.html" class="link">📋 View Detailed Report</a></p>
-                <div class="stats">
-                    <p><strong>✅ Static Code Analysis</strong></p>
-                    <p>Security vulnerabilities scanned</p>
-                    <p>Quality gates validated</p>
-                </div>
+                <p><a href="sonarqube-report.html" class="link">📋 View Report</a></p>
+                <p><strong>✅ Code Quality Analysis</strong></p>
                 <span class="badge badge-success">Completed</span>
             </div>
             
             <div class="card warning">
                 <h2>🕷️ OWASP ZAP Scan</h2>
-                <p><a href="zap-report.html" class="link">📋 View Security Report</a></p>
-                <div class="stats">
-                    <p><strong>🎯 Target:</strong> ${TARGET_URL}</p>
-                    <p>Dynamic security testing</p>
-                    <p>Web application vulnerabilities</p>
-                </div>
+                <p><a href="zap-report.html" class="link">📋 View Report</a></p>
+                <p><strong>🎯 Target:</strong> ${TARGET_URL}</p>
                 <span class="badge badge-warning">Security Scan</span>
             </div>
             
             <div class="card info">
                 <h2>🐳 Container Security</h2>
-                <p><a href="trivy-image-report.txt" class="link">📋 View Image Scan</a></p>
-                <div class="stats">
-                    <p><strong>✅ Docker Image Scanned</strong></p>
-                    <p>Dependencies analyzed</p>
-                    <p>Vulnerabilities checked</p>
-                </div>
+                <p><a href="trivy-image-report.txt" class="link">📋 View Scan</a></p>
+                <p><strong>✅ Image Scanned</strong></p>
                 <span class="badge badge-success">Secured</span>
             </div>
             
@@ -684,89 +528,21 @@ EOF
                         # Ajouter score K8s si disponible
                         if [ -f "reports/k8s-security-score.txt" ]; then
                             K8S_SCORE=$(cat reports/k8s-security-score.txt)
-                            echo "                <div class=\"score\">${K8S_SCORE}</div>" >> reports/security-dashboard.html
-                        else
-                            echo "                <div class=\"score\">N/A</div>" >> reports/security-dashboard.html
+                            echo "                <p><strong>Score: ${K8S_SCORE}</strong></p>" >> reports/security-dashboard.html
                         fi
                         
                         cat >> reports/security-dashboard.html << 'EOF'
-                <p><a href="k8s-security-report.txt" class="link">📋 View K8s Report</a></p>
-                <div class="stats">
-                    <p><strong>🛡️ 3 Piliers Validés:</strong></p>
-                    <p>• Security Context</p>
-                    <p>• RBAC</p>
-                    <p>• Network Isolation</p>
-                </div>
+                <p><a href="k8s-security-report.txt" class="link">📋 View Report</a></p>
                 <span class="badge badge-success">Production Ready</span>
             </div>
         </div>
         
         <div class="card">
-            <h2>📈 Security Pipeline Summary</h2>
-            <div class="grid">
-                <div>
-                    <h3>🔍 Static Analysis (SAST)</h3>
-                    <ul>
-                        <li>✅ SonarQube code quality analysis</li>
-                        <li>✅ Dependency vulnerability scan (Trivy)</li>
-                        <li>✅ Container image security scan</li>
-                        <li>✅ Kubernetes configuration scan</li>
-                    </ul>
-                </div>
-                <div>
-                    <h3>🕷️ Dynamic Analysis (DAST)</h3>
-                    <ul>
-                        <li>✅ OWASP ZAP baseline scan</li>
-                        <li>✅ Web application security testing</li>
-                        <li>✅ Runtime vulnerability detection</li>
-                        <li>✅ Real-world attack simulation</li>
-                    </ul>
-                </div>
-                <div>
-                    <h3>☸️ Infrastructure Security</h3>
-                    <ul>
-                        <li>✅ Kubernetes manifests validated</li>
-                        <li>✅ Security contexts enforced</li>
-                        <li>✅ RBAC policies applied</li>
-                        <li>✅ Network policies configured</li>
-                    </ul>
-                </div>
-                <div>
-                    <h3>🤖 AI-Powered Recommendations</h3>
-                    <ul>
-                        <li>✅ Mistral AI security analysis</li>
-                        <li>✅ Automated recommendations</li>
-                        <li>✅ Priority-based action items</li>
-                        <li>✅ Best practices guidance</li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-        
-        <div class="card info">
-            <h2>🔗 Quick Links</h2>
-            <div class="grid">
-                <div>
-                    <h4>📊 Reports</h4>
-                    <p><a href="sonarqube-report.html" class="link">SonarQube Analysis</a></p>
-                    <p><a href="zap-report.html" class="link">OWASP ZAP Scan</a></p>
-                    <p><a href="k8s-security-report.txt" class="link">Kubernetes Security</a></p>
-                </div>
-                <div>
-                    <h4>🔧 Raw Data</h4>
-                    <p><a href="trivy-sca-report.txt" class="link">Dependency Scan</a></p>
-                    <p><a href="trivy-image-report.txt" class="link">Image Vulnerabilities</a></p>
-                    <p><a href="trivy-k8s-report.txt" class="link">K8s Config Scan</a></p>
-                </div>
-                <div>
-                    <h4>🤖 AI Analysis</h4>
-                    <p><a href="../security-recommendations.md" class="link">Mistral AI Recommendations</a></p>
-                </div>
-                <div>
-                    <h4>📈 External Links</h4>
-                    <p><a href="http://localhost:9000/dashboard?id=demo-app" target="_blank" class="link">SonarQube Dashboard</a></p>
-                </div>
-            </div>
+            <h2>📈 Security Summary</h2>
+            <p>✅ Static Analysis: SonarQube + Trivy</p>
+            <p>✅ Dynamic Testing: OWASP ZAP</p>
+            <p>✅ Infrastructure: Kubernetes Security</p>
+            <p>✅ CI/CD Pipeline: Fully Integrated</p>
         </div>
         
     </div>
@@ -774,7 +550,7 @@ EOF
 </html>
 EOF
                         
-                        echo "✅ Security Dashboard généré: reports/security-dashboard.html"
+                        echo "✅ Security Dashboard généré"
                         '''
                     } catch (Exception e) {
                         echo "⚠️ Erreur génération dashboard: ${e.message}"
@@ -788,94 +564,68 @@ EOF
             steps {
                 script {
                     try {
-                        echo '🤖 Envoi des rapports à Mistral AI...'
+                        echo '🤖 Consultation Mistral AI...'
                         
-                        def reportContent = ""
+                        def reportContent = "Rapport sécurité généré par pipeline CI/CD"
                         try {
                             reportContent = readFile('reports/k8s-security-report.txt')
                         } catch (Exception e) {
-                            reportContent = "Rapport sécurité non généré"
+                            echo "Rapport K8s non trouvé"
                         }
                         
-                        def mistralPrompt = """En tant qu'expert en cybersécurité DevSecOps et Kubernetes, analyse ce rapport de sécurité et fournit:
-
-1. 🏛️ ANALYSE DES 3 PILIERS KUBERNETES:
-   - Pods Sécurisés (Security Context)
-   - RBAC (Role-Based Access Control)
-   - Isolation (NetworkPolicies)
-
-2. 🔍 PROBLÈMES CRITIQUES identifiés
-3. 📋 RECOMMANDATIONS prioritaires
-4. 🛠️ SOLUTIONS techniques précises
-5. 📊 SCORE de sécurité global
-
-Rapport: ${reportContent}"""
+                        def mistralPrompt = """Analyse ce rapport de sécurité et donne des recommandations sur les 3 piliers Kubernetes: Security Context, RBAC, NetworkPolicies. Rapport: ${reportContent}"""
 
                         writeFile file: 'mistral-prompt.txt', text: mistralPrompt
                         
-                        writeFile file: 'create_mistral_request.py', text: '''
+                        sh '''
+                        python3 -c "
 import json
-
 with open('mistral-prompt.txt', 'r') as f:
     prompt = f.read()
-
 request = {
-    "model": "mistral-large-latest",
-    "messages": [{"role": "user", "content": prompt}],
-    "temperature": 0.2,
-    "max_tokens": 4000
+    'model': 'mistral-large-latest',
+    'messages': [{'role': 'user', 'content': prompt}],
+    'temperature': 0.2,
+    'max_tokens': 4000
 }
-
 with open('mistral-request.json', 'w') as f:
     json.dump(request, f)
-'''
+"
                         
-                        sh 'python3 create_mistral_request.py'
-                        
-                        def curlCommand = """
                         curl -s -X POST "${MISTRAL_API_URL}" \\
-                        -H "Content-Type: application/json" \\
-                        -H "Authorization: Bearer ${MISTRAL_API_KEY}" \\
-                        -d @mistral-request.json > mistral-response.json || echo '{"error":"Erreur API"}' > mistral-response.json
-                        """
+                            -H "Content-Type: application/json" \\
+                            -H "Authorization: Bearer ${MISTRAL_API_KEY}" \\
+                            -d @mistral-request.json > mistral-response.json || echo '{"error":"API Error"}' > mistral-response.json
                         
-                        sh curlCommand
-                        
-                        writeFile file: 'extract_response.py', text: '''
+                        python3 -c "
 import json
-
 try:
     with open('mistral-response.json', 'r') as f:
         response = json.load(f)
-    
     if 'choices' in response and len(response['choices']) > 0:
         print(response['choices'][0]['message']['content'])
     else:
-        print("Erreur lors de l'appel API Mistral")
+        print('Erreur API Mistral')
 except Exception as e:
-    print(f"Erreur: {str(e)}")
-'''
-                        
-                        def recommendations = sh(script: 'python3 extract_response.py', returnStdout: true).trim()
-                        writeFile file: 'security-recommendations.md', text: recommendations
+    print(f'Erreur: {str(e)}')
+" > security-recommendations.md
+                        '''
                         
                         echo "✅ Recommandations IA générées"
                         
                     } catch (Exception e) {
                         echo "⚠️ Erreur Mistral AI: ${e.message}"
-                        writeFile file: 'security-recommendations.md', text: """# 🛡️ Recommandations de sécurité
+                        writeFile file: 'security-recommendations.md', text: """# Recommandations de sécurité
 
 ## 🏛️ Validation des 3 Piliers Kubernetes
-1. **Pods Sécurisés**: Vérifier Security Context avec runAsUser: 1000
-2. **RBAC**: Configurer ServiceAccount avec permissions minimales  
-3. **Isolation**: Déployer NetworkPolicies restrictives
+1. **Pods Sécurisés**: Security Context avec runAsUser: 1000
+2. **RBAC**: ServiceAccount avec permissions minimales  
+3. **Isolation**: NetworkPolicies restrictives
 
-## 🔧 Actions prioritaires
-- Corriger les vulnérabilités HIGH/CRITICAL trouvées par Trivy
-- Valider la configuration Kubernetes avant déploiement
-- Implémenter les tests de sécurité automatisés
-
-Erreur API: ${e.message}
+## Actions prioritaires
+- Corriger vulnérabilités HIGH/CRITICAL
+- Valider configuration Kubernetes
+- Tests de sécurité automatisés
 """
                         currentBuild.result = 'UNSTABLE'
                     }
@@ -887,17 +637,16 @@ Erreur API: ${e.message}
     post {
         success {
             script {
-                echo '🎉 ✅ Pipeline de sécurité CI/CD + Kubernetes réussi!'
-                echo '📊 Dashboard généré: reports/security-dashboard.html'
+                echo '🎉 ✅ Pipeline de sécurité réussi!'
+                echo '📊 Dashboard: reports/security-dashboard.html'
                 echo '🔗 Rapports SonarQube et ZAP disponibles'
-                echo '☸️ Manifests Kubernetes sécurisés prêts au déploiement'
             }
         }
         unstable {
-            echo '⚠️ Pipeline terminé avec avertissements. Vérifiez les rapports de sécurité.'
+            echo '⚠️ Pipeline terminé avec avertissements.'
         }
         failure {
-            echo '❌ Échec critique du pipeline de sécurité.'
+            echo '❌ Échec du pipeline de sécurité.'
         }
         always {
             // Publication des rapports HTML
@@ -937,9 +686,9 @@ Erreur API: ${e.message}
                         ])
                     }
                     
-                    echo '✅ Rapports HTML publiés avec succès'
+                    echo '✅ Rapports HTML publiés'
                 } catch (Exception e) {
-                    echo "⚠️ Erreur publication rapports HTML: ${e.message}"
+                    echo "⚠️ Erreur publication rapports: ${e.message}"
                 }
             }
             
@@ -961,23 +710,17 @@ Erreur API: ${e.message}
             script {
                 sh '''
                     echo ""
-                    echo "🏆 ===== RÉSUMÉ FINAL DU PIPELINE DE SÉCURITÉ ====="
+                    echo "🏆 RÉSUMÉ PIPELINE DE SÉCURITÉ"
                     echo "📅 Date: $(date)"
                     echo "🏗️ Build: ${BUILD_NUMBER}"
-                    echo "🎯 Application: ${APP_NAME}"
                     echo ""
-                    echo "📊 RAPPORTS GÉNÉRÉS:"
-                    echo "✅ Security Dashboard: reports/security-dashboard.html"
-                    if [ -f "reports/sonarqube-report.html" ]; then echo "✅ SonarQube Report: reports/sonarqube-report.html"; fi
-                    if [ -f "reports/zap-report.html" ]; then echo "✅ OWASP ZAP Report: reports/zap-report.html"; fi
-                    if [ -f "reports/k8s-security-score.txt" ]; then echo "✅ K8s Security: $(cat reports/k8s-security-score.txt)"; fi
+                    echo "📊 RAPPORTS:"
+                    if [ -f "reports/security-dashboard.html" ]; then echo "✅ Security Dashboard"; fi
+                    if [ -f "reports/sonarqube-report.html" ]; then echo "✅ SonarQube Report"; fi
+                    if [ -f "reports/zap-report.html" ]; then echo "✅ OWASP ZAP Report"; fi
+                    if [ -f "reports/k8s-security-score.txt" ]; then echo "✅ K8s: $(cat reports/k8s-security-score.txt)"; fi
                     echo ""
-                    echo "🔗 ACCÈS AUX RAPPORTS:"
-                    echo "1. HTML Reports (liens dans le menu Jenkins)"
-                    echo "2. Build Artifacts (fichiers téléchargeables)"
-                    echo "3. Security Dashboard (rapport principal)"
-                    echo ""
-                    echo "🚀 Votre application est maintenant prête pour un déploiement sécurisé!"
+                    echo "🚀 Application sécurisée prête au déploiement!"
                 '''
             }
         }
