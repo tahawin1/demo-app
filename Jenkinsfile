@@ -514,11 +514,14 @@ Erreur API: ${e.message}
     
     post {
         success {
-            echo '✅ Pipeline de sécurité CI/CD + Kubernetes réussi!'
-            if (fileExists('k8s-deploy/deployment.yaml')) {
-                echo '🎉 Manifests Kubernetes sécurisés générés!'
+            script {
+                echo '✅ Pipeline de sécurité CI/CD + Kubernetes réussi!'
+                def k8sManifests = sh(script: 'ls k8s-deploy/ 2>/dev/null | wc -l', returnStdout: true).trim()
+                if (k8sManifests != '0') {
+                    echo '🎉 Manifests Kubernetes sécurisés générés!'
+                }
+                echo 'Les recommandations sont disponibles dans security-recommendations.md'
             }
-            echo 'Les recommandations sont disponibles dans security-recommendations.md'
         }
         unstable {
             echo '⚠ Pipeline terminé avec avertissements. Vérifiez les rapports.'
@@ -529,17 +532,19 @@ Erreur API: ${e.message}
         always {
             archiveArtifacts artifacts: '*.txt, *.html, *.json, *.md, k8s-deploy/*, security-reports/*, zap-output.log', allowEmptyArchive: true
             
-            // Résumé final
-            sh '''
-                echo ""
-                echo "🏆 RÉSUMÉ DU PIPELINE:"
-                echo "📅 $(date)"
-                echo "🏗️ Build: ${BUILD_NUMBER}"
-                if [ -f "k8s-security-score.txt" ]; then
-                    echo "🛡️ $(cat k8s-security-score.txt)"
-                fi
-                echo "📦 Artefacts archivés avec succès"
-            '''
+            // Résumé final avec script
+            script {
+                sh '''
+                    echo ""
+                    echo "🏆 RÉSUMÉ DU PIPELINE:"
+                    echo "📅 $(date)"
+                    echo "🏗️ Build: ${BUILD_NUMBER}"
+                    if [ -f "k8s-security-score.txt" ]; then
+                        echo "🛡️ $(cat k8s-security-score.txt)"
+                    fi
+                    echo "📦 Artefacts archivés avec succès"
+                '''
+            }
         }
     }
 }
