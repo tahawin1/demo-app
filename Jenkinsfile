@@ -1,440 +1,76 @@
 pipeline {
     agent any
     
-    environment {
-        DOCKER_REGISTRY = 'docker.io'  // Changez selon votre registry
-        DOCKER_CREDENTIALS = 'docker-hub-credentials'
-        SONARQUBE_SERVER = 'SonarQube'
-        KUBECONFIG_CREDENTIALS = 'kubeconfig-credentials'
-        NAMESPACE = 'production'
-        APP_NAME = 'demo-app'
-        TRIVY_SEVERITY = 'CRITICAL,HIGH'
-        // Snyk token sera récupéré différemment
-    }
-    
     stages {
-        stage('Vérification des prérequis') {
+        stage('Checkout') {
             steps {
-                script {
-                    echo "=== Vérification de l'environnement ==="
-                    sh '''
-                        echo "Docker version:"
-                        docker --version
-                        
-                        echo "Espace disque disponible:"
-                        df -h
-                        
-                        echo "Variables d'environnement importantes:"
-                        echo "BUILD_NUMBER: ${BUILD_NUMBER}"
-                        echo "APP_NAME: ${APP_NAME}"
-                        echo "DOCKER_REGISTRY: ${DOCKER_REGISTRY}"
-                    '''
-                }
+                echo 'Récupération du code source...'
+                // Si vous utilisez Git
+                git branch: 'main', url: 'https://github.com/votre-user/votre-repo.git'
+                // Ou si le code est déjà sur le serveur Jenkins
+                // checkout scm
             }
         }
         
-        stage('Checkout SCM') {
+        stage('Build') {
             steps {
-                checkout scm
-                echo "Code source récupéré depuis ${env.GIT_BRANCH}"
+                echo 'Compilation du projet...'
+                // Pour un projet Maven
+                sh 'mvn clean compile'
+                // Pour un projet Gradle
+                // sh './gradlew build'
+                // Pour un projet Node.js
+                // sh 'npm install && npm run build'
             }
         }
         
-        stage('Build Docker Image') {
+        stage('Tests') {
             steps {
-                script {
-                    echo "=== Construction de l'image Docker ==="
-                    // Construction de l'image Docker
-                    sh """
-                        docker build -t ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER} .
-                        docker tag ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER} ${env.DOCKER_REGISTRY}/${env.APP_NAME}:latest
-                    """
-                    echo "✅ Image Docker construite avec succès"
-                }
+                echo 'Exécution des tests...'
+                // Pour Maven
+                sh 'mvn test'
+                // Pour Gradle
+                // sh './gradlew test'
+                // Pour Node.js
+                // sh 'npm test'
             }
         }
         
-        stage('Analyse SonarQube') {
-            when {
-                expression { fileExists('sonar-project.properties') }
-            }
+        stage('SonarQube Analysis') {
             steps {
-                script {
-                    try {
-                        withSonarQubeEnv(SONARQUBE_SERVER) {
-                            sh '''
-                                sonar-scanner \
-                                  -Dsonar.projectKey=${APP_NAME} \
-                                  -Dsonar.sources=. \
-                                  -Dsonar.host.url=$SONAR_HOST_URL \
-                                  -Dsonar.login=$SONAR_AUTH_TOKEN
-                            '''
-                        }
-                    } catch (Exception e) {
-                        echo "SonarQube analysis skipped: ${e.message}"
-                    }
+                echo 'Analyse SonarQube...'
+                withSonarQubeEnv('SonarQube-Server') {
+                    // Pour Maven
+                    sh 'mvn sonar:sonar'
+                    // Pour Gradle
+                    // sh './gradlew sonarqube'
+                    // Pour autres projets avec sonar-scanner
+                    // sh 'sonar-scanner'
                 }
             }
         }
         
         stage('Quality Gate') {
-            when {
-                expression { fileExists('sonar-project.properties') }
-            }
             steps {
-                script {
-                    try {
-                        timeout(time: 1, unit: 'HOURS') {
-                            waitForQualityGate abortPipeline: false
-                        }
-                    } catch (Exception e) {
-                        echo "Quality Gate check skipped: ${e.message}"
-                    }
-                }
-            }
-        }
-        
-        stage('Scan des vulnérabilités - Trivy') {
-            steps {
-                script {
-                    echo "=== Démarrage du scan Trivy ==="
-                    
-                    // Scan avec Trivy via Docker (pas besoin d'installation)
-                    def scanResult = sh(
-                        script: """
-                            docker run --rm \
-                              -v /var/run/docker.sock:/var/run/docker.sock \
-                              -v \$(pwd):/workspace \
-                              aquasec/trivy:latest image \
-                              --severity ${env.TRIVY_SEVERITY} \
-                              --no-progress \
-                              --format json \
-                              --output /workspace/trivy-report.json \
-                              ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER}
-                        """,
-                        returnStatus: true
-                    )
-                    
-                    // Vérifier si le rapport a été généré
-                    if (fileExists('trivy-report.json')) {
-                        echo "Rapport Trivy généré avec succès"
-                        archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
-                        
-                        // Afficher un résumé des vulnérabilités
-                        sh '''
-                            echo "=== Résumé des vulnérabilités Trivy ==="
-                            if command -v jq &> /dev/null; then
-                                jq -r '.Results[]? | select(.Vulnerabilities) | .Vulnerabilities | group_by(.Severity) | map({Severity: .[0].Severity, Count: length}) | .[]' trivy-report.json 2>/dev/null || echo "Aucune vulnérabilité trouvée ou rapport vide"
-                            else
-                                echo "Rapport généré: trivy-report.json (jq non disponible pour l'analyse)"
-                            fi
-                        '''
-                    } else {
-                        echo "Aucun rapport Trivy généré"
-                    }
-                    
-                    // Gérer le résultat du scan
-                    if (scanResult != 0) {
-                        echo "⚠️ Vulnérabilités détectées par Trivy (code de sortie: ${scanResult})"
-                        echo "Consultez le rapport trivy-report.json pour plus de détails"
-                        
-                        // Option 1: Continuer avec un avertissement
-                        unstable("Vulnérabilités détectées par Trivy")
-                        
-                        // Option 2: Arrêter le pipeline (décommentez la ligne suivante si vous voulez arrêter)
-                        // error "Vulnérabilités critiques détectées par Trivy!"
-                    } else {
-                        echo "✅ Aucune vulnérabilité critique détectée par Trivy"
-                    }
-                }
-            }
-        }
-        
-        stage('Scan des dépendances - Snyk') {
-            when {
-                expression { 
-                    try {
-                        withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                            return true
-                        }
-                    } catch (Exception e) {
-                        echo "Snyk token not configured, skipping Snyk scan"
-                        return false
-                    }
-                }
-            }
-            steps {
-                script {
-                    withCredentials([string(credentialsId: 'snyk-token', variable: 'SNYK_TOKEN')]) {
-                        // Installation de Snyk si nécessaire
-                        sh '''
-                            if ! command -v snyk &> /dev/null; then
-                                echo "Installation de Snyk..."
-                                npm install -g snyk
-                            fi
-                        '''
-                        
-                        sh """
-                            snyk auth ${SNYK_TOKEN}
-                            snyk container test ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER} \
-                              --severity-threshold=high \
-                              --json > snyk-report.json || true
-                        """
-                        
-                        if (fileExists('snyk-report.json')) {
-                            // Vérifier les vulnérabilités critiques
-                            def snykReport = readJSON file: 'snyk-report.json'
-                            if (snykReport.vulnerabilities?.any { it.severity == 'critical' }) {
-                                error "Vulnérabilités critiques détectées par Snyk!"
-                            }
-                            archiveArtifacts artifacts: 'snyk-report.json', allowEmptyArchive: true
-                        }
-                    }
-                }
-            }
-        }
-        
-        stage('Push Docker Image') {
-            when {
-                allOf {
-                    expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-                    branch 'main'
-                }
-            }
-            steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: env.DOCKER_CREDENTIALS,
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
-                        sh """
-                            echo ${DOCKER_PASS} | docker login ${env.DOCKER_REGISTRY} -u ${DOCKER_USER} --password-stdin
-                            docker push ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER}
-                            docker push ${env.DOCKER_REGISTRY}/${env.APP_NAME}:latest
-                            docker logout ${env.DOCKER_REGISTRY}
-                        """
-                    }
-                }
-            }
-        }
-        
-        stage('Déploiement sur Kubernetes') {
-            when {
-                allOf {
-                    expression { currentBuild.result == null || currentBuild.result == 'SUCCESS' }
-                    branch 'main'
-                }
-            }
-            steps {
-                script {
-                    // Créer le manifeste de déploiement Kubernetes
-                    writeFile file: 'k8s-deployment.yaml', text: """
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: ${env.APP_NAME}
-  namespace: ${env.NAMESPACE}
-  labels:
-    app: ${env.APP_NAME}
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: ${env.APP_NAME}
-  template:
-    metadata:
-      labels:
-        app: ${env.APP_NAME}
-        version: "${env.BUILD_NUMBER}"
-    spec:
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000
-      containers:
-      - name: ${env.APP_NAME}
-        image: ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER}
-        ports:
-        - containerPort: 8080
-          name: http
-        securityContext:
-          runAsNonRoot: true
-          runAsUser: 1000
-          readOnlyRootFilesystem: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop:
-            - ALL
-        resources:
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-          requests:
-            memory: "256Mi"
-            cpu: "250m"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /ready
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 5
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ${env.APP_NAME}
-  namespace: ${env.NAMESPACE}
-spec:
-  selector:
-    app: ${env.APP_NAME}
-  ports:
-  - port: 80
-    targetPort: 8080
-    protocol: TCP
-  type: LoadBalancer
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: ${env.APP_NAME}-netpol
-  namespace: ${env.NAMESPACE}
-spec:
-  podSelector:
-    matchLabels:
-      app: ${env.APP_NAME}
-  policyTypes:
-  - Ingress
-  - Egress
-  ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          name: ${env.NAMESPACE}
-    ports:
-    - protocol: TCP
-      port: 8080
-  egress:
-  - to:
-    - namespaceSelector: {}
-    ports:
-    - protocol: TCP
-      port: 53  # DNS
-    - protocol: UDP
-      port: 53  # DNS
-  - to:
-    - namespaceSelector:
-        matchLabels:
-          name: ${env.NAMESPACE}
-"""
-                    
-                    // Déployer sur Kubernetes
-                    withCredentials([file(credentialsId: env.KUBECONFIG_CREDENTIALS, variable: 'KUBECONFIG')]) {
-                        sh """
-                            # Créer le namespace s'il n'existe pas
-                            kubectl create namespace ${env.NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
-                            
-                            # Appliquer les manifestes
-                            kubectl apply -f k8s-deployment.yaml
-                            
-                            # Attendre que le déploiement soit prêt
-                            kubectl rollout status deployment/${env.APP_NAME} -n ${env.NAMESPACE} --timeout=5m
-                            
-                            # Afficher l'état du déploiement
-                            kubectl get deployment,pods,svc -n ${env.NAMESPACE} -l app=${env.APP_NAME}
-                        """
-                    }
-                }
-            }
-        }
-        
-        stage('Tests de sécurité post-déploiement') {
-            when {
-                branch 'main'
-            }
-            steps {
-                script {
-                    withCredentials([file(credentialsId: env.KUBECONFIG_CREDENTIALS, variable: 'KUBECONFIG')]) {
-                        // Vérifier les politiques de sécurité
-                        sh """
-                            echo "=== Vérification de la sécurité des pods ==="
-                            
-                            # Vérifier que les pods n'ont pas de privilèges élevés
-                            kubectl get pods -n ${env.NAMESPACE} -l app=${env.APP_NAME} -o jsonpath='{range .items[*]}{.metadata.name}{" securityContext: "}{.spec.containers[*].securityContext}{"\n"}{end}'
-                            
-                            # Vérifier les network policies
-                            echo -e "\n=== Network Policies ==="
-                            kubectl get networkpolicies -n ${env.NAMESPACE}
-                            
-                            # Vérifier les ressources
-                            echo -e "\n=== Utilisation des ressources ==="
-                            kubectl top pods -n ${env.NAMESPACE} -l app=${env.APP_NAME} || echo "Metrics server not installed"
-                        """
-                    }
-                }
-            }
-        }
-        
-        stage('Rapport de conformité') {
-            steps {
-                script {
-                    sh """
-                        echo "=== Rapport de Sécurité ===" > security-report.txt
-                        echo "Build: ${env.BUILD_NUMBER}" >> security-report.txt
-                        echo "Date: \$(date)" >> security-report.txt
-                        echo "Image: ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER}" >> security-report.txt
-                        echo "" >> security-report.txt
-                        
-                        if [ -f trivy-report.json ]; then
-                            echo "--- Résultats Trivy ---" >> security-report.txt
-                            jq -r '.Results[0].Vulnerabilities | if . then length else 0 end' trivy-report.json >> security-report.txt || echo "0" >> security-report.txt
-                        fi
-                        
-                        if [ -f snyk-report.json ]; then
-                            echo -e "\n--- Résultats Snyk ---" >> security-report.txt
-                            jq -r '.vulnerabilities | if . then length else 0 end' snyk-report.json >> security-report.txt || echo "0" >> security-report.txt
-                        fi
-                        
-                        echo -e "\n--- État du déploiement ---" >> security-report.txt
-                        echo "Déploiement réussi sur Kubernetes" >> security-report.txt
-                    """
-                    
-                    if (fileExists('security-report.txt')) {
-                        archiveArtifacts artifacts: 'security-report.txt', allowEmptyArchive: true
-                    }
+                echo 'Vérification Quality Gate...'
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
     }
     
     post {
-        always {
-            script {
-                echo "=== Nettoyage des ressources ==="
-                // Nettoyer les images Docker locales
-                sh """
-                    docker rmi ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER} || true
-                    docker rmi ${env.DOCKER_REGISTRY}/${env.APP_NAME}:latest || true
-                """
-                
-                // Nettoyer les fichiers temporaires
-                sh "rm -f k8s-deployment.yaml security-report.txt || true"
-            }
-        }
-        
-        failure {
-            echo "❌ Pipeline failed for build ${env.BUILD_NUMBER}"
-            // Notification peut être ajoutée ici si nécessaire
-        }
-        
         success {
-            echo "✅ Pipeline succeeded! Image ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER} deployed to ${env.NAMESPACE}"
+            echo 'Pipeline exécuté avec succès!'
+        }
+        failure {
+            echo 'Le pipeline a échoué.'
+        }
+        always {
+            echo 'Nettoyage...'
+            // Archiver les résultats si nécessaire
+            // archiveArtifacts artifacts: 'target/*.jar', allowEmptyArchive: true
         }
     }
 }
