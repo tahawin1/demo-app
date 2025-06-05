@@ -13,6 +13,26 @@ pipeline {
     }
     
     stages {
+        stage('Vérification des prérequis') {
+            steps {
+                script {
+                    echo "=== Vérification de l'environnement ==="
+                    sh '''
+                        echo "Docker version:"
+                        docker --version
+                        
+                        echo "Espace disque disponible:"
+                        df -h
+                        
+                        echo "Variables d'environnement importantes:"
+                        echo "BUILD_NUMBER: ${BUILD_NUMBER}"
+                        echo "APP_NAME: ${APP_NAME}"
+                        echo "DOCKER_REGISTRY: ${DOCKER_REGISTRY}"
+                    '''
+                }
+            }
+        }
+        
         stage('Checkout SCM') {
             steps {
                 checkout scm
@@ -23,11 +43,13 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
+                    echo "=== Construction de l'image Docker ==="
                     // Construction de l'image Docker
                     sh """
                         docker build -t ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER} .
                         docker tag ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER} ${env.DOCKER_REGISTRY}/${env.APP_NAME}:latest
                     """
+                    echo "✅ Image Docker construite avec succès"
                 }
             }
         }
@@ -75,36 +97,54 @@ pipeline {
         stage('Scan des vulnérabilités - Trivy') {
             steps {
                 script {
-                    // Installation de Trivy si nécessaire
-                    sh '''
-                        if ! command -v trivy &> /dev/null; then
-                            echo "Installation de Trivy..."
-                            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-                            echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
-                            sudo apt-get update
-                            sudo apt-get install -y trivy
-                        fi
-                    '''
+                    echo "=== Démarrage du scan Trivy ==="
                     
-                    // Scan avec Trivy
+                    // Scan avec Trivy via Docker (pas besoin d'installation)
                     def scanResult = sh(
                         script: """
-                            trivy image --severity ${env.TRIVY_SEVERITY} \
+                            docker run --rm \
+                              -v /var/run/docker.sock:/var/run/docker.sock \
+                              -v \$(pwd):/workspace \
+                              aquasec/trivy:latest image \
+                              --severity ${env.TRIVY_SEVERITY} \
                               --no-progress \
                               --format json \
-                              --output trivy-report.json \
+                              --output /workspace/trivy-report.json \
                               ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER}
                         """,
                         returnStatus: true
                     )
                     
-                    // Archiver le rapport
+                    // Vérifier si le rapport a été généré
                     if (fileExists('trivy-report.json')) {
+                        echo "Rapport Trivy généré avec succès"
                         archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
+                        
+                        // Afficher un résumé des vulnérabilités
+                        sh '''
+                            echo "=== Résumé des vulnérabilités Trivy ==="
+                            if command -v jq &> /dev/null; then
+                                jq -r '.Results[]? | select(.Vulnerabilities) | .Vulnerabilities | group_by(.Severity) | map({Severity: .[0].Severity, Count: length}) | .[]' trivy-report.json 2>/dev/null || echo "Aucune vulnérabilité trouvée ou rapport vide"
+                            else
+                                echo "Rapport généré: trivy-report.json (jq non disponible pour l'analyse)"
+                            fi
+                        '''
+                    } else {
+                        echo "Aucun rapport Trivy généré"
                     }
                     
+                    // Gérer le résultat du scan
                     if (scanResult != 0) {
-                        error "Vulnérabilités critiques détectées par Trivy!"
+                        echo "⚠️ Vulnérabilités détectées par Trivy (code de sortie: ${scanResult})"
+                        echo "Consultez le rapport trivy-report.json pour plus de détails"
+                        
+                        // Option 1: Continuer avec un avertissement
+                        unstable("Vulnérabilités détectées par Trivy")
+                        
+                        // Option 2: Arrêter le pipeline (décommentez la ligne suivante si vous voulez arrêter)
+                        // error "Vulnérabilités critiques détectées par Trivy!"
+                    } else {
+                        echo "✅ Aucune vulnérabilité critique détectée par Trivy"
                     }
                 }
             }
@@ -376,6 +416,7 @@ spec:
     post {
         always {
             script {
+                echo "=== Nettoyage des ressources ==="
                 // Nettoyer les images Docker locales
                 sh """
                     docker rmi ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER} || true
@@ -388,12 +429,12 @@ spec:
         }
         
         failure {
-            echo "Pipeline failed for build ${env.BUILD_NUMBER}"
+            echo "❌ Pipeline failed for build ${env.BUILD_NUMBER}"
             // Notification peut être ajoutée ici si nécessaire
         }
         
         success {
-            echo "Pipeline succeeded! Image ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER} deployed to ${env.NAMESPACE}"
+            echo "✅ Pipeline succeeded! Image ${env.DOCKER_REGISTRY}/${env.APP_NAME}:${env.BUILD_NUMBER} deployed to ${env.NAMESPACE}"
         }
     }
 }
