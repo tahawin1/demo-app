@@ -161,10 +161,10 @@ Le code respecte les standards de qualité définis.
             }
         }
 
-        stage('Build de l'image Docker') {
+        stage('Build Docker') {
             steps {
                 script {
-                    echo '🏗️ Construction de l'image Docker...'
+                        echo '🏗️ Construction Docker...'
                     sh '''
                         # Construire l'image Docker
                         docker build -t ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} .
@@ -174,15 +174,15 @@ Le code respecte les standards de qualité définis.
                         docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}
                         docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest
                     '''
-                    echo "✅ Image Docker construite et poussée"
+                        echo "✅ Docker build terminé"
                 }
             }
         }
 
-        stage('Scan de l'image avec Trivy') {
+        stage('Scan Docker Image') {
             steps {
                 script {
-                    echo '🔎 Scan de l'image avec Trivy...'
+                    echo '🔎 Scan Docker avec Trivy...'
                     sh '''
                         # Scan de l'image Docker
                         trivy image --format table --output trivy-reports/image-scan-report.txt ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}
@@ -197,7 +197,7 @@ Le code respecte les standards de qualité définis.
             }
         }
 
-        stage('Signature de l'image avec Cosign') {
+        stage('Sign Docker Image') {
             steps {
                 script {
                     try {
