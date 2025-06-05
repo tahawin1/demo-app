@@ -1,9 +1,11 @@
 stage('Génération du rapport de sécurité consolidé') {
-            when {
-                expression { currentBuild.result != 'FAILURE' }
-            }
             steps {
                 script {
+                    if (currentBuild.result == 'FAILURE') {
+                        echo "⏭️ Stage ignoré - build précédent en échec"
+                        return
+                    }
+                    
                     echo "📊 Génération du rapport de sécurité consolidé..."
                     
                     sh '''
@@ -292,11 +294,13 @@ Le code respecte les standards de qualité définis.
         }
 
         stage('Scan Docker Image') {
-            when {
-                expression { currentBuild.result != 'FAILURE' }
-            }
             steps {
                 script {
+                    if (currentBuild.result == 'FAILURE') {
+                        echo "⏭️ Stage ignoré - build précédent en échec"
+                        return
+                    }
+                    
                     try {
                         echo '🔎 Scan Docker avec Trivy...'
                         sh '''
@@ -318,11 +322,13 @@ Le code respecte les standards de qualité définis.
         }
 
         stage('Sign Docker Image') {
-            when {
-                expression { currentBuild.result != 'FAILURE' }
-            }
             steps {
                 script {
+                    if (currentBuild.result == 'FAILURE') {
+                        echo "⏭️ Stage ignoré - build précédent en échec"
+                        return
+                    }
+                    
                     try {
                         echo '✍️ Signature avec Cosign...'
                         if (env.getEnvironment().containsKey('cosign-key')) {
@@ -348,11 +354,13 @@ Le code respecte les standards de qualité définis.
         }
 
         stage('Analyse DAST avec ZAP') {
-            when {
-                expression { currentBuild.result != 'FAILURE' }
-            }
             steps {
                 script {
+                    if (currentBuild.result == 'FAILURE') {
+                        echo "⏭️ Stage ignoré - build précédent en échec"
+                        return
+                    }
+                    
                     try {
                         echo "🧪 Analyse dynamique avec ZAP..."
                         sh '''
@@ -381,11 +389,13 @@ Le code respecte les standards de qualité définis.
         }
 
         stage('Quality Gate OWASP ZAP') {
-            when {
-                expression { currentBuild.result != 'FAILURE' }
-            }
             steps {
                 script {
+                    if (currentBuild.result == 'FAILURE') {
+                        echo "⏭️ Stage ignoré - build précédent en échec"
+                        return
+                    }
+                    
                     try {
                         echo "🔍 Vérification du Quality Gate OWASP ZAP..."
                         
@@ -481,6 +491,60 @@ Le code respecte les standards de qualité définis.
                             // Générer un rapport détaillé d'échec
                             writeFile file: 'security-reports/zap-quality-gate-failure.txt', text: """
 ÉCHEC DU QUALITY GATE OWASP ZAP
+==============================
+Build: ${BUILD_NUMBER}
+Date: ${new Date()}
+URL cible: ${TARGET_URL}
+
+Résultats ZAP:
+- Risque Élevé: ${zapResults.high ?: 'N/A'}
+- Risque Moyen: ${zapResults.medium ?: 'N/A'}
+- Risque Faible: ${zapResults.low ?: 'N/A'}
+- Informationnel: ${zapResults.info ?: 'N/A'}
+
+Problèmes détectés:
+${zapFailures.join('\n')}
+
+Actions requises:
+- Examiner le rapport détaillé ZAP
+- Corriger les vulnérabilités de sécurité
+- Relancer les tests de sécurité
+- Vérifier que tous les seuils sont respectés
+"""
+                            
+                            currentBuild.result = 'UNSTABLE'
+                            echo "⚠️ Pipeline continue malgré l'échec du Quality Gate ZAP"
+                            
+                        } else {
+                            echo "✅ Quality Gate OWASP ZAP RÉUSSI!"
+                            
+                            // Générer un rapport de succès
+                            writeFile file: 'security-reports/zap-quality-gate-success.txt', text: """
+SUCCÈS DU QUALITY GATE OWASP ZAP
+===============================
+Build: ${BUILD_NUMBER}
+Date: ${new Date()}
+URL cible: ${TARGET_URL}
+
+Résultats ZAP:
+- Risque Élevé: ${zapResults.high ?: 'N/A'}
+- Risque Moyen: ${zapResults.medium ?: 'N/A'}
+- Risque Faible: ${zapResults.low ?: 'N/A'}
+- Informationnel: ${zapResults.info ?: 'N/A'}
+
+Toutes les conditions du quality gate ont été respectées.
+L'application respecte les standards de sécurité définis.
+"""
+                        }
+                        
+                    } catch (Exception e) {
+                        echo "❌ Erreur Quality Gate ZAP: ${e.message}"
+                        echo "⚠️ Continuant sans Quality Gate ZAP..."
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        } DU QUALITY GATE OWASP ZAP
 ==============================
 Build: ${BUILD_NUMBER}
 Date: ${new Date()}
