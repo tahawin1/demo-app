@@ -8,9 +8,8 @@ stage('Génération du rapport de sécurité consolidé') {
                     
                     echo "📊 Génération du rapport de sécurité consolidé..."
                     
-                    sh '''
-                        cat > security-reports/security-consolidated-report.html << 'EOFHTML'
-<!DOCTYPE html>
+                    // Créer le rapport HTML en utilisant writeFile
+                    def htmlContent = """<!DOCTYPE html>
 <html>
 <head>
     <title>Rapport de Securite Consolide - Build ${BUILD_NUMBER}</title>
@@ -27,28 +26,28 @@ stage('Génération du rapport de sécurité consolidé') {
 </head>
 <body>
     <div class="header">
-        <h1>🛡️ Rapport de Securite Consolide</h1>
-        <p>Build: ${BUILD_NUMBER} | Date: $(date) | Pipeline: ${JOB_NAME}</p>
+        <h1>Rapport de Securite Consolide</h1>
+        <p>Build: ${BUILD_NUMBER} | Date: ${new Date()} | Pipeline: ${JOB_NAME}</p>
     </div>
     
     <div class="section">
-        <h2>📋 Resume des Quality Gates</h2>
+        <h2>Resume des Quality Gates</h2>
         <div class="metric">
-            <strong>SonarQube:</strong> <span class="warning">⚠️ IGNORE (serveur non accessible)</span>
+            <strong>SonarQube:</strong> <span class="warning">IGNORE (serveur non accessible)</span>
         </div>
         <div class="metric">
-            <strong>OWASP ZAP:</strong> <span class="success">✅ TRAITE</span>
+            <strong>OWASP ZAP:</strong> <span class="success">TRAITE</span>
         </div>
         <div class="metric">
-            <strong>Trivy SCA:</strong> <span class="success">✅ TERMINE</span>
+            <strong>Trivy SCA:</strong> <span class="success">TERMINE</span>
         </div>
         <div class="metric">
-            <strong>Image Scan:</strong> <span class="success">✅ TERMINE</span>
+            <strong>Image Scan:</strong> <span class="success">TERMINE</span>
         </div>
     </div>
     
     <div class="section">
-        <h2>🔍 Analyses Effectuees</h2>
+        <h2>Analyses Effectuees</h2>
         <ul>
             <li><strong>Analyse Statique (SAST):</strong> SonarQube - Ignore (serveur non accessible)</li>
             <li><strong>Analyse des Dependances (SCA):</strong> Trivy - Vulnerabilites des composants</li>
@@ -59,7 +58,7 @@ stage('Génération du rapport de sécurité consolidé') {
     </div>
     
     <div class="section">
-        <h2>📊 Metriques de Securite</h2>
+        <h2>Metriques de Securite</h2>
         <p>Pipeline execute avec tolerance aux erreurs non critiques.</p>
         <p>Consultez les rapports individuels pour des details approfondis.</p>
     </div>
@@ -68,9 +67,9 @@ stage('Génération du rapport de sécurité consolidé') {
         <p>Rapport genere automatiquement par le pipeline de securite</p>
     </div>
 </body>
-</html>
-EOFHTML
-                    '''
+</html>"""
+                    
+                    writeFile file: 'security-reports/security-consolidated-report.html', text: htmlContent
                     
                     echo "✅ Rapport consolidé généré"
                 }
@@ -178,16 +177,7 @@ sonar.qualitygate.wait=true
                             echo "⚠️ SonarQube non accessible, continuant sans Quality Gate..."
                             echo "📝 Quality Gate SonarQube ignoré (serveur non disponible)"
                             
-                                writeFile file: 'security-reports/sonarqube-quality-gate-skipped.txt', text: """
-QUALITY GATE SONARQUBE IGNORE
-=============================
-Raison: Serveur SonarQube non accessible
-URL tentee: ${env.SONAR_HOST_URL ?: 'http://localhost:9000'}
-Build: ${BUILD_NUMBER}
-Date: ${new Date()}
-
-Le pipeline continue sans validation SonarQube.
-"""
+                                    writeFile file: 'security-reports/sonarqube-quality-gate-skipped.txt', text: "QUALITY GATE SONARQUBE IGNORE\nRaison: Serveur SonarQube non accessible\nURL tentee: ${env.SONAR_HOST_URL ?: 'http://localhost:9000'}\nBuild: ${BUILD_NUMBER}\nDate: ${new Date()}\n\nLe pipeline continue sans validation SonarQube."
                             return
                         }
                         
@@ -208,21 +198,7 @@ Le pipeline continue sans validation SonarQube.
                                 }
                                 
                                 // Générer un rapport détaillé
-                                writeFile file: 'security-reports/sonarqube-quality-gate-failure.txt', text: """
-ECHEC DU QUALITY GATE SONARQUBE
-===============================
-Statut: ${qg.status}
-Build: ${BUILD_NUMBER}
-Date: ${new Date()}
-
-Conditions echouees:
-${qg.conditions?.collect { "- ${it.metricKey}: ${it.actualValue} (seuil: ${it.errorThreshold})" }?.join('\n') ?: 'Aucun detail disponible'}
-
-Action requise:
-- Corriger les problemes de qualite de code
-- Relancer l'analyse SonarQube
-- Verifier que tous les seuils sont respectes
-"""
+                                writeFile file: 'security-reports/sonarqube-quality-gate-failure.txt', text: "ECHEC DU QUALITY GATE SONARQUBE\nStatut: ${qg.status}\nBuild: ${BUILD_NUMBER}\nDate: ${new Date()}\n\nConditions echouees:\n${qg.conditions?.collect { "- ${it.metricKey}: ${it.actualValue} (seuil: ${it.errorThreshold})" }?.join('\n') ?: 'Aucun detail disponible'}\n\nAction requise:\n- Corriger les problemes de qualite de code\n- Relancer l'analyse SonarQube\n- Verifier que tous les seuils sont respectes"
                                 
                                 currentBuild.result = 'UNSTABLE'
                                 echo "⚠️ Pipeline continue malgré l'échec du Quality Gate SonarQube"
@@ -230,16 +206,7 @@ Action requise:
                                 echo "✅ Quality Gate SonarQube RÉUSSI!"
                                 
                                 // Générer un rapport de succès
-                                writeFile file: 'security-reports/sonarqube-quality-gate-success.txt', text: """
-SUCCES DU QUALITY GATE SONARQUBE
-===============================
-Statut: ${qg.status}
-Build: ${BUILD_NUMBER}
-Date: ${new Date()}
-
-Toutes les conditions du quality gate ont ete respectees.
-Le code respecte les standards de qualite definis.
-"""
+                                writeFile file: 'security-reports/sonarqube-quality-gate-success.txt', text: "SUCCES DU QUALITY GATE SONARQUBE\nStatut: ${qg.status}\nBuild: ${BUILD_NUMBER}\nDate: ${new Date()}\n\nToutes les conditions du quality gate ont ete respectees.\nLe code respecte les standards de qualite definis."
                             }
                         }
                     } catch (Exception e) {
@@ -488,28 +455,7 @@ Le code respecte les standards de qualite definis.
                             }
                             
                             // Générer un rapport détaillé d'échec
-                            writeFile file: 'security-reports/zap-quality-gate-failure.txt', text: """
-ECHEC DU QUALITY GATE OWASP ZAP
-==============================
-Build: ${BUILD_NUMBER}
-Date: ${new Date()}
-URL cible: ${TARGET_URL}
-
-Resultats ZAP:
-- Risque Eleve: ${zapResults.high ?: 'N/A'}
-- Risque Moyen: ${zapResults.medium ?: 'N/A'}
-- Risque Faible: ${zapResults.low ?: 'N/A'}
-- Informationnel: ${zapResults.info ?: 'N/A'}
-
-Problemes detectes:
-${zapFailures.join('\n')}
-
-Actions requises:
-- Examiner le rapport detaille ZAP
-- Corriger les vulnerabilites de securite
-- Relancer les tests de securite
-- Verifier que tous les seuils sont respectes
-"""
+                            writeFile file: 'security-reports/zap-quality-gate-failure.txt', text: "ECHEC DU QUALITY GATE OWASP ZAP\nBuild: ${BUILD_NUMBER}\nDate: ${new Date()}\nURL cible: ${TARGET_URL}\n\nResultats ZAP:\n- Risque Eleve: ${zapResults.high ?: 'N/A'}\n- Risque Moyen: ${zapResults.medium ?: 'N/A'}\n- Risque Faible: ${zapResults.low ?: 'N/A'}\n- Informationnel: ${zapResults.info ?: 'N/A'}\n\nProblemes detectes:\n${zapFailures.join('\n')}\n\nActions requises:\n- Examiner le rapport detaille ZAP\n- Corriger les vulnerabilites de securite\n- Relancer les tests de securite\n- Verifier que tous les seuils sont respectes"
                             
                             currentBuild.result = 'UNSTABLE'
                             echo "⚠️ Pipeline continue malgré l'échec du Quality Gate ZAP"
@@ -518,22 +464,7 @@ Actions requises:
                             echo "✅ Quality Gate OWASP ZAP RÉUSSI!"
                             
                             // Générer un rapport de succès
-                            writeFile file: 'security-reports/zap-quality-gate-success.txt', text: """
-SUCCES DU QUALITY GATE OWASP ZAP
-===============================
-Build: ${BUILD_NUMBER}
-Date: ${new Date()}
-URL cible: ${TARGET_URL}
-
-Resultats ZAP:
-- Risque Eleve: ${zapResults.high ?: 'N/A'}
-- Risque Moyen: ${zapResults.medium ?: 'N/A'}
-- Risque Faible: ${zapResults.low ?: 'N/A'}
-- Informationnel: ${zapResults.info ?: 'N/A'}
-
-Toutes les conditions du quality gate ont ete respectees.
-L'application respecte les standards de securite definis.
-"""
+                            writeFile file: 'security-reports/zap-quality-gate-success.txt', text: "SUCCES DU QUALITY GATE OWASP ZAP\nBuild: ${BUILD_NUMBER}\nDate: ${new Date()}\nURL cible: ${TARGET_URL}\n\nResultats ZAP:\n- Risque Eleve: ${zapResults.high ?: 'N/A'}\n- Risque Moyen: ${zapResults.medium ?: 'N/A'}\n- Risque Faible: ${zapResults.low ?: 'N/A'}\n- Informationnel: ${zapResults.info ?: 'N/A'}\n\nToutes les conditions du quality gate ont ete respectees.\nL'application respecte les standards de securite definis."
                         }
                         
                     } catch (Exception e) {
