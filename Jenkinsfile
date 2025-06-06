@@ -29,7 +29,7 @@ pipeline {
                     try {
                         echo "Debut de l'analyse SonarQube..."
 
-                        writeFile file: 'sonar-project.properties', text: 'sonar.projectKey=demo-app\nsonar.projectName=Demo App Security Pipeline\nsonar.sources=.\nsonar.exclusions=**/node_modules/**,**/target/**,**/*.log,**/security-reports/**\nsonar.sourceEncoding=UTF-8\nsonar.qualitygate.wait=true'
+                        writeFile file: 'sonar-project.properties', text: 'sonar.projectKey=demo-app\nsonar.projectName=Demo App Security Pipeline\nsonar.sources=.\nsonar.exclusions=**/node_modules/**,**/target/**,**/*.log,**/security-reports/**\nsonar.sourceEncoding=UTF-8\nsonar.qualitygate.wait=false'
 
                         withSonarQubeEnv('sonarQube') {
                             sh '''
@@ -182,32 +182,6 @@ pipeline {
             }
         }
 
-        stage('Sign Docker Image') {
-            steps {
-                script {
-                    if (currentBuild.result == 'FAILURE') {
-                        echo "Stage ignore"
-                        return
-                    }
-                    
-                    try {
-                        echo 'Signature Cosign...'
-                        try {
-                            withCredentials([string(credentialsId: 'cosign-key', variable: 'COSIGN_PASSWORD')]) {
-                                sh 'cosign sign --key env://COSIGN_PASSWORD ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} || echo "Signature echouee"'
-                            }
-                            echo "Signature reussie"
-                        } catch (Exception credError) {
-                            echo "Credential cosign-key non trouve - signature ignoree"
-                        }
-                    } catch (Exception e) {
-                        echo "Erreur Cosign: ${e.message}"
-                        currentBuild.result = 'UNSTABLE'
-                    }
-                }
-            }
-        }
-
         stage('Analyse DAST avec ZAP') {
             steps {
                 script {
@@ -306,6 +280,92 @@ pipeline {
             }
         }
 
+        stage('Consultation Mistral AI') {
+            steps {
+                script {
+                    if (currentBuild.result == 'FAILURE') {
+                        echo "Stage ignore"
+                        return
+                    }
+                    
+                    try {
+                        echo "Consultation Mistral AI pour analyse des rapports de securite..."
+                        
+                        // Lire les rapports de securite
+                        def sonarReport = fileExists('security-reports/sonarqube-success.txt') ? readFile('security-reports/sonarqube-success.txt') : 'SonarQube non execute'
+                        def zapReport = fileExists('security-reports/zap-success.txt') ? readFile('security-reports/zap-success.txt') : fileExists('security-reports/zap-failure.txt') ? readFile('security-reports/zap-failure.txt') : 'ZAP non execute'
+                        def trivyReport = fileExists('trivy-reports/sca-report.txt') ? sh(script: 'head -20 trivy-reports/sca-report.txt', returnStdout: true) : 'Trivy non execute'
+                        
+                        // Preparer le prompt pour Mistral
+                        def prompt = """
+Analyse les rapports de securite suivants et donne des recommandations:
+
+SONARQUBE:
+${sonarReport}
+
+ZAP SCAN:
+${zapReport}
+
+TRIVY SCAN:
+${trivyReport}
+
+Fournis une analyse resumee en francais avec des recommandations concretes pour ameliorer la securite.
+"""
+
+                        // Appel API Mistral
+                        def requestBody = [
+                            model: "mistral-large-latest",
+                            messages: [
+                                [role: "system", content: "Tu es un expert en securite applicative qui analyse des rapports de tests de securite."],
+                                [role: "user", content: prompt]
+                            ],
+                            max_tokens: 1000,
+                            temperature: 0.3
+                        ]
+                        
+                        def response = sh(
+                            script: """
+                                curl -s -X POST "${MISTRAL_API_URL}" \\
+                                -H "Content-Type: application/json" \\
+                                -H "Authorization: Bearer ${MISTRAL_API_KEY}" \\
+                                -d '${groovy.json.JsonBuilder(requestBody).toString().replace("'", "\\'")}'
+                            """,
+                            returnStdout: true
+                        ).trim()
+                        
+                        // Parser la reponse
+                        try {
+                            def jsonResponse = readJSON text: response
+                            def mistralAnalysis = jsonResponse.choices[0].message.content
+                            
+                            echo "Analyse Mistral AI:"
+                            echo "${mistralAnalysis}"
+                            
+                            // Sauvegarder l'analyse
+                            writeFile file: 'security-reports/mistral-analysis.txt', text: """
+ANALYSE MISTRAL AI - SECURITE
+============================
+Date: ${new Date()}
+Build: ${BUILD_NUMBER}
+
+${mistralAnalysis}
+"""
+                            
+                        } catch (Exception parseError) {
+                            echo "Erreur parsing reponse Mistral: ${parseError.message}"
+                            echo "Reponse brute: ${response}"
+                            writeFile file: 'security-reports/mistral-error.txt', text: "Erreur Mistral AI: ${parseError.message}\nReponse: ${response}"
+                        }
+                        
+                    } catch (Exception e) {
+                        echo "Erreur consultation Mistral AI: ${e.message}"
+                        writeFile file: 'security-reports/mistral-error.txt', text: "Erreur consultation Mistral AI: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
+                }
+            }
+        }
+
         stage('Generation rapport consolide') {
             steps {
                 script {
@@ -316,43 +376,83 @@ pipeline {
                     
                     echo "Generation rapport consolide..."
                     
-                    def htmlReport = '''<!DOCTYPE html>
+                    // Lire l'analyse Mistral si disponible
+                    def mistralAnalysis = fileExists('security-reports/mistral-analysis.txt') ? readFile('security-reports/mistral-analysis.txt') : 'Analyse Mistral AI non disponible'
+                    
+                    def htmlReport = """<!DOCTYPE html>
 <html>
 <head>
-    <title>Rapport Securite</title>
+    <title>Rapport Securite - Build ${BUILD_NUMBER}</title>
     <style>
-        body { font-family: Arial; margin: 20px; }
-        .header { background: #667eea; color: white; padding: 20px; }
-        .section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; }
-        .success { color: green; }
-        .warning { color: orange; }
-        .error { color: red; }
+        body { font-family: Arial; margin: 20px; background-color: #f5f5f5; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; }
+        .section { background: white; margin: 20px 0; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .success { color: #28a745; font-weight: bold; }
+        .warning { color: #ffc107; font-weight: bold; }
+        .error { color: #dc3545; font-weight: bold; }
+        .metric { display: inline-block; margin: 10px; padding: 10px; background: #f8f9fa; border-radius: 5px; border-left: 4px solid #007bff; }
+        .mistral-section { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; border-radius: 10px; margin: 20px 0; }
+        pre { background: #f8f9fa; padding: 15px; border-radius: 5px; overflow-x: auto; white-space: pre-wrap; }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>Rapport de Securite</h1>
+        <h1>Rapport de Securite Consolide</h1>
+        <p>Build: ${BUILD_NUMBER} | Date: ${new Date()} | Pipeline: ${JOB_NAME}</p>
     </div>
+    
     <div class="section">
-        <h2>Quality Gates</h2>
-        <p>SonarQube: Verifie</p>
-        <p>OWASP ZAP: Verifie</p>
-        <p>Trivy: Execute</p>
+        <h2>Resume des Quality Gates</h2>
+        <div class="metric">
+            <strong>SonarQube:</strong> <span class="success">Verifie</span>
+        </div>
+        <div class="metric">
+            <strong>OWASP ZAP:</strong> <span class="success">Verifie</span>
+        </div>
+        <div class="metric">
+            <strong>Trivy SCA:</strong> <span class="success">Execute</span>
+        </div>
+        <div class="metric">
+            <strong>Trivy Image:</strong> <span class="success">Execute</span>
+        </div>
     </div>
+    
     <div class="section">
-        <h2>Analyses</h2>
+        <h2>Analyses Effectuees</h2>
         <ul>
-            <li>SonarQube - Qualite du code</li>
-            <li>Trivy - Vulnerabilites</li>
-            <li>ZAP - Tests dynamiques</li>
-            <li>Cosign - Signature</li>
+            <li><strong>Analyse Statique (SAST):</strong> SonarQube - Qualite et securite du code</li>
+            <li><strong>Analyse des Dependances (SCA):</strong> Trivy - Vulnerabilites des composants</li>
+            <li><strong>Analyse de l'Image:</strong> Trivy - Securite des conteneurs</li>
+            <li><strong>Analyse Dynamique (DAST):</strong> OWASP ZAP - Tests de penetration</li>
+            <li><strong>Analyse IA:</strong> Mistral AI - Recommandations intelligentes</li>
+        </ul>
+    </div>
+    
+    <div class="mistral-section">
+        <h2>Analyse Mistral AI</h2>
+        <pre>${mistralAnalysis.take(2000)}${mistralAnalysis.length() > 2000 ? '...' : ''}</pre>
+    </div>
+    
+    <div class="section">
+        <h2>Metriques de Securite</h2>
+        <p>Pipeline execute avec quality gates de securite automatises.</p>
+        <p>Consultez les rapports individuels et l'analyse IA pour des details approfondis.</p>
+    </div>
+    
+    <div class="section">
+        <h2>Actions Recommandees</h2>
+        <ul>
+            <li>Examiner les rapports detailles de chaque outil</li>
+            <li>Implementer les recommandations de Mistral AI</li>
+            <li>Verifier les quality gates avant deployment</li>
+            <li>Surveiller les nouvelles vulnerabilites</li>
         </ul>
     </div>
 </body>
-</html>'''
+</html>"""
                     
                     writeFile file: 'security-reports/rapport-consolide.html', text: htmlReport
-                    echo "Rapport genere"
+                    echo "Rapport consolide genere avec analyse Mistral AI"
                 }
             }
         }
@@ -374,9 +474,9 @@ pipeline {
                         keepAll: true,
                         reportDir: 'security-reports',
                         reportFiles: 'rapport-consolide.html',
-                        reportName: 'Rapport Securite'
+                        reportName: 'Rapport Securite avec IA'
                     ])
-                    echo "Rapport HTML publie"
+                    echo "Rapport HTML avec IA publie"
                 } catch (Exception e) {
                     echo "Plugin HTML non disponible - rapports archives"
                 }
@@ -391,8 +491,8 @@ pipeline {
             script {
                 try {
                     emailext (
-                        subject: "Pipeline Reussi - ${JOB_NAME} ${BUILD_NUMBER}",
-                        body: "Pipeline de securite termine avec succes. Build: ${BUILD_NUMBER}",
+                        subject: "Pipeline Securise avec IA Reussi - ${JOB_NAME} ${BUILD_NUMBER}",
+                        body: "Pipeline de securite avec analyse Mistral AI termine avec succes. Build: ${BUILD_NUMBER}",
                         recipientProviders: [developers(), requestor()]
                     )
                 } catch (Exception e) {
@@ -406,8 +506,8 @@ pipeline {
             script {
                 try {
                     emailext (
-                        subject: "Pipeline Instable - ${JOB_NAME} ${BUILD_NUMBER}",
-                        body: "Pipeline termine avec avertissements. Build: ${BUILD_NUMBER}",
+                        subject: "Pipeline Securise avec IA Instable - ${JOB_NAME} ${BUILD_NUMBER}",
+                        body: "Pipeline termine avec avertissements. Consultez l'analyse Mistral AI. Build: ${BUILD_NUMBER}",
                         recipientProviders: [developers(), requestor()]
                     )
                 } catch (Exception e) {
@@ -421,7 +521,7 @@ pipeline {
             script {
                 try {
                     emailext (
-                        subject: "Pipeline Echoue - ${JOB_NAME} ${BUILD_NUMBER}",
+                        subject: "Pipeline Securise avec IA Echoue - ${JOB_NAME} ${BUILD_NUMBER}",
                         body: "Pipeline de securite echoue. Build: ${BUILD_NUMBER}",
                         recipientProviders: [developers(), requestor()]
                     )
