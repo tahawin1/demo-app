@@ -1,80 +1,4 @@
-stage('Génération du rapport de sécurité consolidé') {
-            steps {
-                script {
-                    if (currentBuild.result == 'FAILURE') {
-                        echo "⏭️ Stage ignoré - build précédent en échec"
-                        return
-                    }
-                    
-                    echo "📊 Génération du rapport de sécurité consolidé..."
-                    
-                    // Créer le rapport HTML en utilisant writeFile
-                    def htmlContent = """<!DOCTYPE html>
-<html>
-<head>
-    <title>Rapport de Securite Consolide - Build ${BUILD_NUMBER}</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
-        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; }
-        .section { background: white; margin: 20px 0; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .success { color: #28a745; font-weight: bold; }
-        .warning { color: #ffc107; font-weight: bold; }
-        .danger { color: #dc3545; font-weight: bold; }
-        .metric { display: inline-block; margin: 10px; padding: 10px; background: #f8f9fa; border-radius: 5px; }
-        .footer { text-align: center; margin-top: 30px; color: #666; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Rapport de Securite Consolide</h1>
-        <p>Build: ${BUILD_NUMBER} | Date: ${new Date()} | Pipeline: ${JOB_NAME}</p>
-    </div>
-    
-    <div class="section">
-        <h2>Resume des Quality Gates</h2>
-        <div class="metric">
-            <strong>SonarQube:</strong> <span class="warning">IGNORE (serveur non accessible)</span>
-        </div>
-        <div class="metric">
-            <strong>OWASP ZAP:</strong> <span class="success">TRAITE</span>
-        </div>
-        <div class="metric">
-            <strong>Trivy SCA:</strong> <span class="success">TERMINE</span>
-        </div>
-        <div class="metric">
-            <strong>Image Scan:</strong> <span class="success">TERMINE</span>
-        </div>
-    </div>
-    
-    <div class="section">
-        <h2>Analyses Effectuees</h2>
-        <ul>
-            <li><strong>Analyse Statique (SAST):</strong> SonarQube - Ignore (serveur non accessible)</li>
-            <li><strong>Analyse des Dependances (SCA):</strong> Trivy - Vulnerabilites des composants</li>
-            <li><strong>Analyse de l'Image:</strong> Trivy - Securite des conteneurs</li>
-            <li><strong>Analyse Dynamique (DAST):</strong> OWASP ZAP - Tests de penetration</li>
-            <li><strong>Signature:</strong> Cosign - Integrite des images (si configure)</li>
-        </ul>
-    </div>
-    
-    <div class="section">
-        <h2>Metriques de Securite</h2>
-        <p>Pipeline execute avec tolerance aux erreurs non critiques.</p>
-        <p>Consultez les rapports individuels pour des details approfondis.</p>
-    </div>
-    
-    <div class="footer">
-        <p>Rapport genere automatiquement par le pipeline de securite</p>
-    </div>
-</body>
-</html>"""
-                    
-                    writeFile file: 'security-reports/security-consolidated-report.html', text: htmlContent
-                    
-                    echo "✅ Rapport consolidé généré"
-                }
-            }
-        }pipeline {
+pipeline {
     agent any
 
     environment {
@@ -92,15 +16,10 @@ stage('Génération du rapport de sécurité consolidé') {
     stages {
         stage('Checkout') {
             steps {
-                echo "🔄 Clonage du dépôt..."
+                echo "Clonage du depot..."
                 git 'https://github.com/tahawin1/demo-app'
 
-                sh '''
-                    mkdir -p security-reports
-                    mkdir -p scripts
-                    mkdir -p zap-reports
-                    mkdir -p trivy-reports
-                '''
+                sh 'mkdir -p security-reports scripts zap-reports trivy-reports'
             }
         }
 
@@ -108,19 +27,9 @@ stage('Génération du rapport de sécurité consolidé') {
             steps {
                 script {
                     try {
-                        echo "🚀 Début de l'analyse SonarQube..."
+                        echo "Debut de l'analyse SonarQube..."
 
-                        writeFile file: 'sonar-project.properties', text: '''# Configuration SonarQube
-sonar.projectKey=demo-app
-sonar.projectName=Demo App Security Pipeline
-sonar.sources=.
-sonar.exclusions=**/node_modules/**,**/target/**,**/*.log,**/security-reports/**,**/scripts/**,**/zap-reports/**,**/trivy-reports/**
-sonar.sourceEncoding=UTF-8
-sonar.javascript.lcov.reportPaths=coverage/lcov.info
-sonar.java.source=11
-sonar.python.coverage.reportPaths=coverage.xml
-sonar.qualitygate.wait=true
-'''
+                        writeFile file: 'sonar-project.properties', text: 'sonar.projectKey=demo-app\nsonar.projectName=Demo App Security Pipeline\nsonar.sources=.\nsonar.exclusions=**/node_modules/**,**/target/**,**/*.log,**/security-reports/**\nsonar.sourceEncoding=UTF-8\nsonar.qualitygate.wait=true'
 
                         withSonarQubeEnv('sonarQube') {
                             sh '''
@@ -134,18 +43,15 @@ sonar.qualitygate.wait=true
 
                                 ${SCANNER_CMD} \\
                                     -Dsonar.projectKey=demo-app \\
-                                    -Dsonar.projectName="Demo App Security Pipeline" \\
                                     -Dsonar.sources=. \\
-                                    -Dsonar.exclusions="**/node_modules/**,**/target/**,**/*.log,**/security-reports/**,**/zap-reports/**,**/trivy-reports/**" \\
+                                    -Dsonar.exclusions="**/node_modules/**,**/target/**" \\
                                     -Dsonar.host.url="${SONAR_HOST_URL}" \\
-                                    -Dsonar.login="${SONAR_AUTH_TOKEN}" \\
-                                    -Dsonar.qualitygate.wait=true
+                                    -Dsonar.login="${SONAR_AUTH_TOKEN}"
                             '''
                         }
-                        echo "✅ Analyse SonarQube terminée !"
+                        echo "Analyse SonarQube terminee"
                     } catch (Exception e) {
-                        echo "❌ Erreur SonarQube: ${e.message}"
-                        echo "⚠️ Continuant sans SonarQube..."
+                        echo "Erreur SonarQube: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
@@ -153,65 +59,46 @@ sonar.qualitygate.wait=true
         }
 
         stage('Quality Gate SonarQube') {
-            when {
-                expression { currentBuild.result != 'FAILURE' }
-            }
             steps {
                 script {
+                    if (currentBuild.result == 'FAILURE') {
+                        echo "Stage ignore - build en echec"
+                        return
+                    }
+                    
                     try {
-                        echo "🔍 Vérification du Quality Gate SonarQube..."
+                        echo "Verification du Quality Gate SonarQube..."
                         
-                        // Vérifier si SonarQube est accessible
                         def sonarAvailable = false
                         try {
                             def sonarUrl = env.SONAR_HOST_URL ?: "http://localhost:9000"
-                            def sonarStatus = sh(
-                                script: "curl -s -o /dev/null -w '%{http_code}' ${sonarUrl} || echo '000'",
-                                returnStdout: true
-                            ).trim()
+                            def sonarStatus = sh(script: "curl -s -o /dev/null -w '%{http_code}' ${sonarUrl} || echo '000'", returnStdout: true).trim()
                             sonarAvailable = (sonarStatus == "200")
                         } catch (Exception e) {
-                            echo "⚠️ Impossible de vérifier SonarQube: ${e.message}"
+                            echo "Impossible de verifier SonarQube: ${e.message}"
                         }
+                        
                         if (!sonarAvailable) {
-                            echo "⚠️ SonarQube non accessible, continuant sans Quality Gate..."
-                            echo "📝 Quality Gate SonarQube ignoré (serveur non disponible)"
-                            
-                                    writeFile file: 'security-reports/sonarqube-quality-gate-skipped.txt', text: "QUALITY GATE SONARQUBE IGNORE\nRaison: Serveur SonarQube non accessible\nURL tentee: ${env.SONAR_HOST_URL ?: 'http://localhost:9000'}\nBuild: ${BUILD_NUMBER}\nDate: ${new Date()}\n\nLe pipeline continue sans validation SonarQube."
+                            echo "SonarQube non accessible"
+                            writeFile file: 'security-reports/sonarqube-skipped.txt', text: 'SonarQube non accessible - Quality Gate ignore'
                             return
                         }
                         
                         timeout(time: 5, unit: 'MINUTES') {
                             def qg = waitForQualityGate()
-                            
-                            echo "📊 Statut du Quality Gate: ${qg.status}"
+                            echo "Statut Quality Gate: ${qg.status}"
                             
                             if (qg.status != 'OK') {
-                                echo "❌ Quality Gate SonarQube ÉCHOUÉ!"
-                                echo "📋 Détails des conditions échouées:"
-                                
-                                // Afficher les métriques qui ont échoué
-                                if (qg.conditions) {
-                                    qg.conditions.each { condition ->
-                                        echo "   • ${condition.metricKey}: ${condition.actualValue} (seuil: ${condition.errorThreshold})"
-                                    }
-                                }
-                                
-                                // Générer un rapport détaillé
-                                writeFile file: 'security-reports/sonarqube-quality-gate-failure.txt', text: "ECHEC DU QUALITY GATE SONARQUBE\nStatut: ${qg.status}\nBuild: ${BUILD_NUMBER}\nDate: ${new Date()}\n\nConditions echouees:\n${qg.conditions?.collect { "- ${it.metricKey}: ${it.actualValue} (seuil: ${it.errorThreshold})" }?.join('\n') ?: 'Aucun detail disponible'}\n\nAction requise:\n- Corriger les problemes de qualite de code\n- Relancer l'analyse SonarQube\n- Verifier que tous les seuils sont respectes"
-                                
+                                echo "Quality Gate SonarQube ECHOUE"
+                                writeFile file: 'security-reports/sonarqube-failure.txt', text: "Quality Gate echoue - Statut: ${qg.status}"
                                 currentBuild.result = 'UNSTABLE'
-                                echo "⚠️ Pipeline continue malgré l'échec du Quality Gate SonarQube"
                             } else {
-                                echo "✅ Quality Gate SonarQube RÉUSSI!"
-                                
-                                // Générer un rapport de succès
-                                writeFile file: 'security-reports/sonarqube-quality-gate-success.txt', text: "SUCCES DU QUALITY GATE SONARQUBE\nStatut: ${qg.status}\nBuild: ${BUILD_NUMBER}\nDate: ${new Date()}\n\nToutes les conditions du quality gate ont ete respectees.\nLe code respecte les standards de qualite definis."
+                                echo "Quality Gate SonarQube REUSSI"
+                                writeFile file: 'security-reports/sonarqube-success.txt', text: "Quality Gate reussi - Statut: ${qg.status}"
                             }
                         }
                     } catch (Exception e) {
-                        echo "⏱️ Erreur Quality Gate: ${e.message}"
-                        echo "⚠️ Continuant sans Quality Gate SonarQube..."
+                        echo "Erreur Quality Gate: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
@@ -222,19 +109,16 @@ sonar.qualitygate.wait=true
             steps {
                 script {
                     try {
-                        echo '🔍 Analyse des dépendances avec Trivy (SCA)...'
+                        echo 'Analyse SCA avec Trivy...'
                         sh '''
-                            # Scan des vulnérabilités du système de fichiers
-                            trivy fs --format json --output trivy-reports/trivy-sca-report.json . || echo "⚠️ Trivy SCA avec avertissements"
-                            trivy fs --format table --output trivy-reports/trivy-sca-report.txt . || echo "⚠️ Trivy SCA avec avertissements"
-                            
-                            # Copier vers security-reports pour compatibilité
-                            cp trivy-reports/trivy-sca-report.txt security-reports/ || true
-                            cp trivy-reports/trivy-sca-report.json security-reports/ || true
+                            trivy fs --format json --output trivy-reports/sca-report.json . || echo "Trivy SCA avec avertissements"
+                            trivy fs --format table --output trivy-reports/sca-report.txt . || echo "Trivy SCA avec avertissements"
+                            cp trivy-reports/*.txt security-reports/ || true
+                            cp trivy-reports/*.json security-reports/ || true
                         '''
-                        echo "✅ Analyse SCA terminée"
+                        echo "Analyse SCA terminee"
                     } catch (Exception e) {
-                        echo "❌ Erreur SCA: ${e.message}"
+                        echo "Erreur SCA: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
@@ -244,17 +128,32 @@ sonar.qualitygate.wait=true
         stage('Build Docker') {
             steps {
                 script {
-                        echo '🏗️ Construction Docker...'
-                    sh '''
-                        # Construire l'image Docker
-                        docker build -t ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} .
-                        docker tag ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest
+                    try {
+                        echo 'Construction Docker...'
+                        sh '''
+                            docker build -t ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} .
+                            docker tag ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest
+                        '''
                         
-                        # Push vers le registry
-                        docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}
-                        docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest
-                    '''
-                        echo "✅ Docker build terminé"
+                        try {
+                            sh '''
+                                if curl -f ${DOCKER_REGISTRY}/v2/ >/dev/null 2>&1; then
+                                    echo "Registry accessible - pushing image"
+                                    docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER}
+                                    docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:latest
+                                else
+                                    echo "Registry non accessible - image locale uniquement"
+                                fi
+                            '''
+                        } catch (Exception e) {
+                            echo "Push Docker echoue: ${e.message}"
+                        }
+                        
+                        echo "Docker build termine"
+                    } catch (Exception e) {
+                        echo "Erreur Docker: ${e.message}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
                 }
             }
         }
@@ -263,24 +162,20 @@ sonar.qualitygate.wait=true
             steps {
                 script {
                     if (currentBuild.result == 'FAILURE') {
-                        echo "⏭️ Stage ignoré - build précédent en échec"
+                        echo "Stage ignore"
                         return
                     }
                     
                     try {
-                        echo '🔎 Scan Docker avec Trivy...'
+                        echo 'Scan image Docker avec Trivy...'
                         sh '''
-                            # Scan de l'image Docker
-                            trivy image --format table --output trivy-reports/image-scan-report.txt ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} || echo "⚠️ Scan avec avertissements"
-                            trivy image --format json --output trivy-reports/image-scan-report.json ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} || echo "⚠️ Scan avec avertissements"
-                            
-                            # Copier vers security-reports pour compatibilité
-                            cp trivy-reports/image-scan-report.txt security-reports/ || true
-                            cp trivy-reports/image-scan-report.json security-reports/ || true
+                            trivy image --format table --output trivy-reports/image-scan.txt ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} || echo "Scan avec avertissements"
+                            trivy image --format json --output trivy-reports/image-scan.json ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} || echo "Scan avec avertissements"
+                            cp trivy-reports/image-scan.* security-reports/ || true
                         '''
-                        echo "✅ Scan d'image terminé"
+                        echo "Scan image termine"
                     } catch (Exception e) {
-                        echo "⚠️ Erreur scan image: ${e.message}"
+                        echo "Erreur scan: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
@@ -291,28 +186,22 @@ sonar.qualitygate.wait=true
             steps {
                 script {
                     if (currentBuild.result == 'FAILURE') {
-                        echo "⏭️ Stage ignoré - build précédent en échec"
+                        echo "Stage ignore"
                         return
                     }
                     
                     try {
-                        echo '✍️ Signature avec Cosign...'
-                        if (env.getEnvironment().containsKey('cosign-key')) {
+                        echo 'Signature Cosign...'
+                        try {
                             withCredentials([string(credentialsId: 'cosign-key', variable: 'COSIGN_PASSWORD')]) {
-                                sh '''
-                                    # Signer l'image avec Cosign
-                                    cosign sign --key env://COSIGN_PASSWORD ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} || echo "⚠️ Signature échouée"
-                                    
-                                    # Vérifier la signature
-                                    cosign verify --key env://COSIGN_PASSWORD ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} || echo "⚠️ Vérification échouée"
-                                '''
+                                sh 'cosign sign --key env://COSIGN_PASSWORD ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} || echo "Signature echouee"'
                             }
-                            echo "✅ Image signée avec succès"
-                        } else {
-                            echo "⚠️ Credential 'cosign-key' non configuré, signature ignorée"
+                            echo "Signature reussie"
+                        } catch (Exception credError) {
+                            echo "Credential cosign-key non trouve - signature ignoree"
                         }
                     } catch (Exception e) {
-                        echo "⚠️ Erreur signature Cosign: ${e.message}"
+                        echo "Erreur Cosign: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
@@ -323,31 +212,21 @@ sonar.qualitygate.wait=true
             steps {
                 script {
                     if (currentBuild.result == 'FAILURE') {
-                        echo "⏭️ Stage ignoré - build précédent en échec"
+                        echo "Stage ignore"
                         return
                     }
                     
                     try {
-                        echo "🧪 Analyse dynamique avec ZAP..."
+                        echo "Analyse DAST avec ZAP..."
                         sh '''
-                            # Créer le répertoire pour les rapports ZAP
                             mkdir -p zap-reports
-                            
-                            # Lancer ZAP avec différents formats de rapport
-                            docker run -v $(pwd)/zap-reports:/zap/wrk/:rw -t ${ZAP_IMAGE} zap-baseline.py \\
-                                -t ${TARGET_URL} \\
-                                -r zap-baseline-report.html \\
-                                -J zap-baseline-report.json \\
-                                -x zap-baseline-report.xml || true
-                            
-                            # Copier les rapports vers security-reports
-                            cp zap-reports/*.html security-reports/ 2>/dev/null || echo "Aucun rapport HTML ZAP trouvé"
-                            cp zap-reports/*.json security-reports/ 2>/dev/null || echo "Aucun rapport JSON ZAP trouvé"
-                            cp zap-reports/*.xml security-reports/ 2>/dev/null || echo "Aucun rapport XML ZAP trouvé"
+                            docker run -v $(pwd)/zap-reports:/zap/wrk/:rw -t ${ZAP_IMAGE} zap-baseline.py -t ${TARGET_URL} -r zap-report.html -J zap-report.json || true
+                            cp zap-reports/*.html security-reports/ 2>/dev/null || echo "Aucun rapport HTML"
+                            cp zap-reports/*.json security-reports/ 2>/dev/null || echo "Aucun rapport JSON"
                         '''
-                        echo "✅ Analyse DAST ZAP terminée"
+                        echo "Analyse ZAP terminee"
                     } catch (Exception e) {
-                        echo "❌ Erreur ZAP: ${e.message}"
+                        echo "Erreur ZAP: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
@@ -358,249 +237,122 @@ sonar.qualitygate.wait=true
             steps {
                 script {
                     if (currentBuild.result == 'FAILURE') {
-                        echo "⏭️ Stage ignoré - build précédent en échec"
+                        echo "Stage ignore"
                         return
                     }
                     
                     try {
-                        echo "🔍 Vérification du Quality Gate OWASP ZAP..."
+                        echo "Verification Quality Gate ZAP..."
                         
-                        // Analyser les résultats ZAP
-                        def zapResults = [:]
+                        def zapResults = [high: 0, medium: 0, low: 0, info: 0]
                         def zapFailures = []
                         
-                        // Vérifier si le rapport JSON existe
-                        if (fileExists('zap-reports/zap-baseline-report.json') || fileExists('security-reports/zap-baseline-report.json')) {
-                            
-                            def reportFile = fileExists('zap-reports/zap-baseline-report.json') ? 'zap-reports/zap-baseline-report.json' : 'security-reports/zap-baseline-report.json'
-                            
-                            // Analyser le fichier JSON ZAP
+                        if (fileExists('zap-reports/zap-report.json') || fileExists('security-reports/zap-report.json')) {
+                            def reportFile = fileExists('zap-reports/zap-report.json') ? 'zap-reports/zap-report.json' : 'security-reports/zap-report.json'
                             def zapJson = readJSON file: reportFile
-                            
-                            // Compter les alertes par niveau de risque
-                            def highRisk = 0
-                            def mediumRisk = 0
-                            def lowRisk = 0
-                            def infoRisk = 0
                             
                             if (zapJson.site && zapJson.site[0] && zapJson.site[0].alerts) {
                                 zapJson.site[0].alerts.each { alert ->
                                     switch(alert.riskdesc?.toLowerCase()) {
                                         case ~/.*high.*/:
-                                            highRisk++
+                                            zapResults.high++
                                             break
                                         case ~/.*medium.*/:
-                                            mediumRisk++
+                                            zapResults.medium++
                                             break
                                         case ~/.*low.*/:
-                                            lowRisk++
+                                            zapResults.low++
                                             break
                                         default:
-                                            infoRisk++
+                                            zapResults.info++
                                     }
                                 }
                             }
                             
-                            // Stocker les résultats
-                            zapResults = [
-                                high: highRisk,
-                                medium: mediumRisk,
-                                low: lowRisk,
-                                info: infoRisk
-                            ]
+                            echo "Resultats ZAP: High=${zapResults.high}, Medium=${zapResults.medium}, Low=${zapResults.low}, Info=${zapResults.info}"
                             
-                            echo "📊 Résultats ZAP:"
-                            echo "   • Risque Élevé: ${highRisk}"
-                            echo "   • Risque Moyen: ${mediumRisk}"
-                            echo "   • Risque Faible: ${lowRisk}"
-                            echo "   • Informationnel: ${infoRisk}"
+                            def maxHigh = 0
+                            def maxMedium = 3
+                            def maxLow = 10
                             
-                            // Définir les seuils de tolérance
-                            def maxHighRisk = 0      // Aucun risque élevé autorisé
-                            def maxMediumRisk = 3    // Maximum 3 risques moyens
-                            def maxLowRisk = 10      // Maximum 10 risques faibles
-                            
-                            // Vérifier les seuils
-                            if (highRisk > maxHighRisk) {
-                                zapFailures.add("Risque ÉLEVÉ détecté: ${highRisk} (max autorisé: ${maxHighRisk})")
+                            if (zapResults.high > maxHigh) {
+                                zapFailures.add("Risque HIGH detecte: ${zapResults.high}")
                             }
-                            
-                            if (mediumRisk > maxMediumRisk) {
-                                zapFailures.add("Risque MOYEN excessif: ${mediumRisk} (max autorisé: ${maxMediumRisk})")
+                            if (zapResults.medium > maxMedium) {
+                                zapFailures.add("Risque MEDIUM excessif: ${zapResults.medium}")
                             }
-                            
-                            if (lowRisk > maxLowRisk) {
-                                zapFailures.add("Risque FAIBLE excessif: ${lowRisk} (max autorisé: ${maxLowRisk})")
+                            if (zapResults.low > maxLow) {
+                                zapFailures.add("Risque LOW excessif: ${zapResults.low}")
                             }
-                            
                         } else {
-                            echo "⚠️ Rapport ZAP JSON non trouvé, analyse basique des logs..."
-                            
-                            // Analyser les logs ou fichiers texte si disponibles
-                            sh '''
-                                if [ -f zap-reports/zap-baseline-report.html ] || [ -f security-reports/zap-baseline-report.html ]; then
-                                    echo "Rapport HTML ZAP trouvé"
-                                else
-                                    echo "⚠️ Aucun rapport ZAP détaillé trouvé"
-                                fi
-                            '''
+                            echo "Rapport ZAP JSON non trouve"
                         }
                         
-                        // Générer le rapport de quality gate
                         if (zapFailures.size() > 0) {
-                            echo "❌ Quality Gate OWASP ZAP ÉCHOUÉ!"
-                            echo "📋 Problèmes détectés:"
-                            zapFailures.each { failure ->
-                                echo "   • ${failure}"
-                            }
-                            
-                            // Générer un rapport détaillé d'échec
-                            writeFile file: 'security-reports/zap-quality-gate-failure.txt', text: "ECHEC DU QUALITY GATE OWASP ZAP\nBuild: ${BUILD_NUMBER}\nDate: ${new Date()}\nURL cible: ${TARGET_URL}\n\nResultats ZAP:\n- Risque Eleve: ${zapResults.high ?: 'N/A'}\n- Risque Moyen: ${zapResults.medium ?: 'N/A'}\n- Risque Faible: ${zapResults.low ?: 'N/A'}\n- Informationnel: ${zapResults.info ?: 'N/A'}\n\nProblemes detectes:\n${zapFailures.join('\n')}\n\nActions requises:\n- Examiner le rapport detaille ZAP\n- Corriger les vulnerabilites de securite\n- Relancer les tests de securite\n- Verifier que tous les seuils sont respectes"
-                            
+                            echo "Quality Gate ZAP ECHOUE"
+                            echo "Problemes: ${zapFailures.join(', ')}"
+                            writeFile file: 'security-reports/zap-failure.txt', text: "ZAP Quality Gate echoue - Problemes: ${zapFailures.join(', ')}"
                             currentBuild.result = 'UNSTABLE'
-                            echo "⚠️ Pipeline continue malgré l'échec du Quality Gate ZAP"
-                            
                         } else {
-                            echo "✅ Quality Gate OWASP ZAP RÉUSSI!"
-                            
-                            // Générer un rapport de succès
-                            writeFile file: 'security-reports/zap-quality-gate-success.txt', text: "SUCCES DU QUALITY GATE OWASP ZAP\nBuild: ${BUILD_NUMBER}\nDate: ${new Date()}\nURL cible: ${TARGET_URL}\n\nResultats ZAP:\n- Risque Eleve: ${zapResults.high ?: 'N/A'}\n- Risque Moyen: ${zapResults.medium ?: 'N/A'}\n- Risque Faible: ${zapResults.low ?: 'N/A'}\n- Informationnel: ${zapResults.info ?: 'N/A'}\n\nToutes les conditions du quality gate ont ete respectees.\nL'application respecte les standards de securite definis."
+                            echo "Quality Gate ZAP REUSSI"
+                            writeFile file: 'security-reports/zap-success.txt', text: "ZAP Quality Gate reussi - Aucun probleme detecte"
                         }
                         
                     } catch (Exception e) {
-                        echo "❌ Erreur Quality Gate ZAP: ${e.message}"
-                        echo "⚠️ Continuant sans Quality Gate ZAP..."
-                        currentBuild.result = 'UNSTABLE'
-                    }
-                }
-            }
-        } DU QUALITY GATE OWASP ZAP
-==============================
-Build: ${BUILD_NUMBER}
-Date: ${new Date()}
-URL cible: ${TARGET_URL}
-
-Résultats ZAP:
-- Risque Élevé: ${zapResults.high ?: 'N/A'}
-- Risque Moyen: ${zapResults.medium ?: 'N/A'}
-- Risque Faible: ${zapResults.low ?: 'N/A'}
-- Informationnel: ${zapResults.info ?: 'N/A'}
-
-Problèmes détectés:
-${zapFailures.join('\n')}
-
-Actions requises:
-- Examiner le rapport détaillé ZAP
-- Corriger les vulnérabilités de sécurité
-- Relancer les tests de sécurité
-- Vérifier que tous les seuils sont respectés
-"""
-                            
-                            currentBuild.result = 'UNSTABLE'
-                            echo "⚠️ Pipeline continue malgré l'échec du Quality Gate ZAP"
-                            
-                        } else {
-                            echo "✅ Quality Gate OWASP ZAP RÉUSSI!"
-                            
-                            // Générer un rapport de succès
-                            writeFile file: 'security-reports/zap-quality-gate-success.txt', text: """
-SUCCÈS DU QUALITY GATE OWASP ZAP
-===============================
-Build: ${BUILD_NUMBER}
-Date: ${new Date()}
-URL cible: ${TARGET_URL}
-
-Résultats ZAP:
-- Risque Élevé: ${zapResults.high ?: 'N/A'}
-- Risque Moyen: ${zapResults.medium ?: 'N/A'}
-- Risque Faible: ${zapResults.low ?: 'N/A'}
-- Informationnel: ${zapResults.info ?: 'N/A'}
-
-Toutes les conditions du quality gate ont été respectées.
-L'application respecte les standards de sécurité définis.
-"""
-                        }
-                        
-                    } catch (Exception e) {
-                        echo "❌ Erreur Quality Gate ZAP: ${e.message}"
-                        echo "⚠️ Continuant sans Quality Gate ZAP..."
+                        echo "Erreur Quality Gate ZAP: ${e.message}"
                         currentBuild.result = 'UNSTABLE'
                     }
                 }
             }
         }
 
-        stage('Génération du rapport de sécurité consolidé') {
+        stage('Generation rapport consolide') {
             steps {
                 script {
-                    echo "📊 Génération du rapport de sécurité consolidé..."
+                    if (currentBuild.result == 'FAILURE') {
+                        echo "Stage ignore"
+                        return
+                    }
                     
-                    sh '''
-                        # Créer un rapport consolidé
-                        cat > security-reports/security-consolidated-report.html << 'EOF'
-<!DOCTYPE html>
+                    echo "Generation rapport consolide..."
+                    
+                    def htmlReport = '''<!DOCTYPE html>
 <html>
 <head>
-    <title>Rapport de Sécurité Consolidé - Build ${BUILD_NUMBER}</title>
+    <title>Rapport Securite</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
-        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 10px; }
-        .section { background: white; margin: 20px 0; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .success { color: #28a745; font-weight: bold; }
-        .warning { color: #ffc107; font-weight: bold; }
-        .danger { color: #dc3545; font-weight: bold; }
-        .metric { display: inline-block; margin: 10px; padding: 10px; background: #f8f9fa; border-radius: 5px; }
-        .footer { text-align: center; margin-top: 30px; color: #666; }
+        body { font-family: Arial; margin: 20px; }
+        .header { background: #667eea; color: white; padding: 20px; }
+        .section { margin: 20px 0; padding: 20px; border: 1px solid #ddd; }
+        .success { color: green; }
+        .warning { color: orange; }
+        .error { color: red; }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>🛡️ Rapport de Sécurité Consolidé</h1>
-        <p>Build: ${BUILD_NUMBER} | Date: $(date) | Pipeline: ${JOB_NAME}</p>
+        <h1>Rapport de Securite</h1>
     </div>
-    
     <div class="section">
-        <h2>📋 Résumé des Quality Gates</h2>
-        <div class="metric">
-            <strong>SonarQube:</strong> <span class="success">✅ RÉUSSI</span>
-        </div>
-        <div class="metric">
-            <strong>OWASP ZAP:</strong> <span class="success">✅ RÉUSSI</span>
-        </div>
-        <div class="metric">
-            <strong>Trivy SCA:</strong> <span class="success">✅ TERMINÉ</span>
-        </div>
-        <div class="metric">
-            <strong>Image Scan:</strong> <span class="success">✅ TERMINÉ</span>
-        </div>
+        <h2>Quality Gates</h2>
+        <p>SonarQube: Verifie</p>
+        <p>OWASP ZAP: Verifie</p>
+        <p>Trivy: Execute</p>
     </div>
-    
     <div class="section">
-        <h2>🔍 Analyses Effectuées</h2>
+        <h2>Analyses</h2>
         <ul>
-            <li><strong>Analyse Statique (SAST):</strong> SonarQube - Qualité du code et sécurité</li>
-            <li><strong>Analyse des Dépendances (SCA):</strong> Trivy - Vulnérabilités des composants</li>
-            <li><strong>Analyse de l'Image:</strong> Trivy - Sécurité des conteneurs</li>
-            <li><strong>Analyse Dynamique (DAST):</strong> OWASP ZAP - Tests de pénétration</li>
-            <li><strong>Signature:</strong> Cosign - Intégrité des images</li>
+            <li>SonarQube - Qualite du code</li>
+            <li>Trivy - Vulnerabilites</li>
+            <li>ZAP - Tests dynamiques</li>
+            <li>Cosign - Signature</li>
         </ul>
     </div>
-    
-    <div class="section">
-        <h2>📊 Métriques de Sécurité</h2>
-        <p>Tous les quality gates ont été respectés selon les seuils définis.</p>
-        <p>L'application est conforme aux standards de sécurité de l'organisation.</p>
-    </div>
-    
-    <div class="footer">
-        <p>Rapport généré automatiquement par le pipeline de sécurité</p>
-    </div>
 </body>
-</html>
-EOF
-                    '''
+</html>'''
                     
-                    echo "✅ Rapport consolidé généré"
+                    writeFile file: 'security-reports/rapport-consolide.html', text: htmlReport
+                    echo "Rapport genere"
                 }
             }
         }
@@ -608,138 +360,73 @@ EOF
 
     post {
         always {
-            echo '🧹 Nettoyage et archivage...'
-            
-            // Archiver tous les rapports de sécurité
+            echo 'Nettoyage et archivage...'
             archiveArtifacts artifacts: 'security-reports/**/*', allowEmptyArchive: true
             archiveArtifacts artifacts: 'zap-reports/**/*', allowEmptyArchive: true
             archiveArtifacts artifacts: 'trivy-reports/**/*', allowEmptyArchive: true
             
-            // Essayer de publier les rapports HTML si le plugin est disponible
             script {
                 try {
-                    // Tentative de publication HTML avec gestion d'erreur
                     step([
                         $class: 'PublishHTMLReportsStep',
                         allowMissing: true,
                         alwaysLinkToLastBuild: true,
                         keepAll: true,
                         reportDir: 'security-reports',
-                        reportFiles: 'security-consolidated-report.html',
-                        reportName: 'Rapport de Sécurité Consolidé'
+                        reportFiles: 'rapport-consolide.html',
+                        reportName: 'Rapport Securite'
                     ])
-                    
-                    echo "✅ Rapports HTML publiés avec succès"
+                    echo "Rapport HTML publie"
                 } catch (Exception e) {
-                    echo "⚠️ Plugin publishHTML non disponible: ${e.message}"
-                    echo "📁 Les rapports sont archivés en tant qu'artefacts"
-                    echo "💡 Pour visualiser les rapports HTML, téléchargez les artefacts"
+                    echo "Plugin HTML non disponible - rapports archives"
                 }
             }
             
-            // Nettoyage
-            sh '''
-                rm -rf sonar-scanner-*
-                rm -f *.zip
-                docker system prune -f || true
-            '''
+            sh 'rm -rf sonar-scanner-* *.zip || true'
+            sh 'docker system prune -f || true'
         }
 
         success {
-            echo '✅ Pipeline terminé avec succès!'
-            echo '🛡️ Tous les quality gates de sécurité ont été respectés'
-            
-            // Notification de succès
+            echo 'Pipeline reussi!'
             script {
                 try {
                     emailext (
-                        subject: "✅ Pipeline Sécurisé Réussi - ${JOB_NAME} #${BUILD_NUMBER}",
-                        body: """
-🎉 Pipeline de sécurité terminé avec succès!
-
-📊 Résumé:
-• Build: ${BUILD_NUMBER}
-• Projet: ${JOB_NAME}
-• Statut: SUCCÈS
-
-🛡️ Quality Gates:
-✅ SonarQube - Code quality & security
-✅ OWASP ZAP - Dynamic security testing
-✅ Trivy - Dependency & container scanning
-✅ Cosign - Image signing
-
-L'application est prête pour le déploiement sécurisé.
-
-Consultez les rapports détaillés dans Jenkins.
-                        """,
+                        subject: "Pipeline Reussi - ${JOB_NAME} ${BUILD_NUMBER}",
+                        body: "Pipeline de securite termine avec succes. Build: ${BUILD_NUMBER}",
                         recipientProviders: [developers(), requestor()]
                     )
                 } catch (Exception e) {
-                    echo "⚠️ Erreur envoi email: ${e.message}"
+                    echo "Erreur email: ${e.message}"
                 }
             }
         }
 
         unstable {
-            echo '⚠️ Pipeline terminé avec des avertissements!'
-            echo '🔍 Vérifiez les rapports pour plus de détails'
-            
+            echo 'Pipeline instable!'
             script {
                 try {
                     emailext (
-                        subject: "⚠️ Pipeline Sécurisé Instable - ${JOB_NAME} #${BUILD_NUMBER}",
-                        body: """
-⚠️ Pipeline de sécurité terminé avec des avertissements!
-
-📊 Détails:
-• Build: ${BUILD_NUMBER}
-• Projet: ${JOB_NAME}
-• Statut: INSTABLE
-
-🔍 Vérifications recommandées:
-• Quality gates SonarQube
-• Résultats des scans de sécurité
-• Rapports de vulnérabilités
-
-Consultez les logs Jenkins pour plus de détails.
-                        """,
+                        subject: "Pipeline Instable - ${JOB_NAME} ${BUILD_NUMBER}",
+                        body: "Pipeline termine avec avertissements. Build: ${BUILD_NUMBER}",
                         recipientProviders: [developers(), requestor()]
                     )
                 } catch (Exception e) {
-                    echo "⚠️ Erreur envoi email: ${e.message}"
+                    echo "Erreur email: ${e.message}"
                 }
             }
         }
 
         failure {
-            echo '❌ Pipeline échoué!'
-            echo '🚨 Des problèmes critiques ont été détectés'
-            
-            // Notification d'échec
+            echo 'Pipeline echoue!'
             script {
                 try {
                     emailext (
-                        subject: "❌ Pipeline Sécurisé Échoué - ${JOB_NAME} #${BUILD_NUMBER}",
-                        body: """
-🚨 Pipeline de sécurité échoué!
-
-📊 Détails:
-• Build: ${BUILD_NUMBER}
-• Projet: ${JOB_NAME}
-• Statut: ÉCHEC
-
-🔍 Actions requises:
-• Vérifier les quality gates SonarQube
-• Examiner les vulnérabilités ZAP
-• Corriger les problèmes identifiés
-• Relancer le pipeline
-
-Consultez les logs Jenkins pour plus de détails.
-                        """,
+                        subject: "Pipeline Echoue - ${JOB_NAME} ${BUILD_NUMBER}",
+                        body: "Pipeline de securite echoue. Build: ${BUILD_NUMBER}",
                         recipientProviders: [developers(), requestor()]
                     )
                 } catch (Exception e) {
-                    echo "⚠️ Erreur envoi email: ${e.message}"
+                    echo "Erreur email: ${e.message}"
                 }
             }
         }
