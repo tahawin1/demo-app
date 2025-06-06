@@ -82,7 +82,7 @@ pipeline {
             }
         }
 
-        stage('🛡️ Quality Gate SonarQube') {
+        stage(' Quality Gate SonarQube') {
             steps {
                 script {
                     try {
@@ -137,7 +137,7 @@ pipeline {
             }
         }
 
-        stage('🛡️ Quality Gate SCA Trivy') {
+        stage(' Quality Gate SCA Trivy') {
             steps {
                 script {
                     try {
@@ -282,7 +282,7 @@ pipeline {
             }
         }
 
-        stage('🛡️ Quality Gate OWASP ZAP') {
+        stage(' Quality Gate OWASP ZAP') {
             steps {
                 script {
                     try {
@@ -355,7 +355,7 @@ pipeline {
             }
         }
 
-        stage('📋 Consolidation des Rapports') {
+        stage(' Consolidation des Rapports') {
             steps {
                 script {
                     try {
@@ -503,7 +503,7 @@ pipeline {
             }
         }
 
-        stage('🤖 Consultation Mistral AI') {
+        stage(' Consultation Mistral AI') {
             steps {
                 script {
                     try {
