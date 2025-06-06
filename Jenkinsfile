@@ -194,9 +194,24 @@ pipeline {
                         echo "Analyse DAST avec ZAP..."
                         sh '''
                             mkdir -p zap-reports
-                            docker run -v $(pwd)/zap-reports:/zap/wrk/:rw -t ${ZAP_IMAGE} zap-baseline.py -t ${TARGET_URL} -r zap-report.html -J zap-report.json || true
-                            cp zap-reports/*.html security-reports/ 2>/dev/null || echo "Aucun rapport HTML"
-                            cp zap-reports/*.json security-reports/ 2>/dev/null || echo "Aucun rapport JSON"
+                            
+                            # Lancer ZAP avec permissions correctes
+                            docker run --user $(id -u):$(id -g) -v $(pwd)/zap-reports:/zap/wrk/:rw -t ${ZAP_IMAGE} zap-baseline.py -t ${TARGET_URL} -r zap-report.html -J zap-report.json || true
+                            
+                            # Verifier si les rapports ont ete generes
+                            if [ -f zap-reports/zap-report.html ]; then
+                                echo "Rapport HTML ZAP genere avec succes"
+                                cp zap-reports/zap-report.html security-reports/ || true
+                            else
+                                echo "Rapport HTML ZAP non genere - probleme de permissions"
+                            fi
+                            
+                            if [ -f zap-reports/zap-report.json ]; then
+                                echo "Rapport JSON ZAP genere avec succes"
+                                cp zap-reports/zap-report.json security-reports/ || true
+                            else
+                                echo "Rapport JSON ZAP non genere - probleme de permissions"
+                            fi
                         '''
                         echo "Analyse ZAP terminee"
                     } catch (Exception e) {
@@ -297,41 +312,42 @@ pipeline {
                         def trivyReport = fileExists('trivy-reports/sca-report.txt') ? sh(script: 'head -20 trivy-reports/sca-report.txt', returnStdout: true) : 'Trivy non execute'
                         
                         // Preparer le prompt pour Mistral
-                        def prompt = """
-Analyse les rapports de securite suivants et donne des recommandations:
+                        def prompt = "Analyse les rapports de securite suivants et donne des recommandations:\\n\\nSONARQUBE:\\n${sonarReport}\\n\\nZAP SCAN:\\n${zapReport}\\n\\nTRIVY SCAN:\\n${trivyReport}\\n\\nFournis une analyse resumee en francais avec des recommandations concretes pour ameliorer la securite."
 
-SONARQUBE:
-${sonarReport}
-
-ZAP SCAN:
-${zapReport}
-
-TRIVY SCAN:
-${trivyReport}
-
-Fournis une analyse resumee en francais avec des recommandations concretes pour ameliorer la securite.
-"""
-
-                        // Appel API Mistral
-                        def requestBody = [
-                            model: "mistral-large-latest",
-                            messages: [
-                                [role: "system", content: "Tu es un expert en securite applicative qui analyse des rapports de tests de securite."],
-                                [role: "user", content: prompt]
-                            ],
-                            max_tokens: 1000,
-                            temperature: 0.3
-                        ]
+                        // Creer le payload JSON manuellement
+                        def jsonPayload = """
+{
+  "model": "mistral-large-latest",
+  "messages": [
+    {
+      "role": "system",
+      "content": "Tu es un expert en securite applicative qui analyse des rapports de tests de securite."
+    },
+    {
+      "role": "user", 
+      "content": "${prompt.replace('"', '\\"').replace('\n', '\\n')}"
+    }
+  ],
+  "max_tokens": 1000,
+  "temperature": 0.3
+}"""
                         
+                        // Sauvegarder le payload dans un fichier temporaire
+                        writeFile file: 'mistral-payload.json', text: jsonPayload
+                        
+                        // Appel API Mistral avec fichier
                         def response = sh(
                             script: """
                                 curl -s -X POST "${MISTRAL_API_URL}" \\
                                 -H "Content-Type: application/json" \\
                                 -H "Authorization: Bearer ${MISTRAL_API_KEY}" \\
-                                -d '${groovy.json.JsonBuilder(requestBody).toString().replace("'", "\\'")}'
+                                -d @mistral-payload.json
                             """,
                             returnStdout: true
                         ).trim()
+                        
+                        // Nettoyer le fichier temporaire
+                        sh 'rm -f mistral-payload.json'
                         
                         // Parser la reponse
                         try {
@@ -342,9 +358,7 @@ Fournis une analyse resumee en francais avec des recommandations concretes pour 
                             echo "${mistralAnalysis}"
                             
                             // Sauvegarder l'analyse
-                            writeFile file: 'security-reports/mistral-analysis.txt', text: """
-ANALYSE MISTRAL AI - SECURITE
-============================
+                            writeFile file: 'security-reports/mistral-analysis.txt', text: """ANALYSE MISTRAL AI - SECURITE
 Date: ${new Date()}
 Build: ${BUILD_NUMBER}
 
@@ -354,7 +368,7 @@ ${mistralAnalysis}
                         } catch (Exception parseError) {
                             echo "Erreur parsing reponse Mistral: ${parseError.message}"
                             echo "Reponse brute: ${response}"
-                            writeFile file: 'security-reports/mistral-error.txt', text: "Erreur Mistral AI: ${parseError.message}\nReponse: ${response}"
+                            writeFile file: 'security-reports/mistral-error.txt', text: "Erreur Mistral AI: ${parseError.message}\\nReponse: ${response}"
                         }
                         
                     } catch (Exception e) {
