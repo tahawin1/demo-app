@@ -233,20 +233,20 @@ pipeline {
             }
         }
 
-        stage('Scan Docker Image') {
+        stage('Trivy Scan') {
             steps {
                 script {
                     try {
-                        echo "🔍 Scan image Docker avec Trivy..."
+                        echo "🔍 Trivy Scan - Image Docker..."
                         sh '''
                             trivy image --format table --output trivy-reports/image-scan.txt ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} || echo "Scan avec avertissements"
                             trivy image --format json --output trivy-reports/image-scan.json ${DOCKER_REGISTRY}/${IMAGE_NAME}:${BUILD_NUMBER} || echo "Scan avec avertissements"
                             cp trivy-reports/image-scan.* security-reports/ || true
                         '''
-                        echo "✅ Scan image terminé"
+                        echo "✅ Trivy Scan terminé"
                     } catch (Exception e) {
-                        echo "❌ Erreur scan image: ${e.message}"
-                        error("🛑 PIPELINE ARRÊTÉ - Erreur critique scan image: ${e.message}")
+                        echo "❌ Erreur Trivy Scan: ${e.message}"
+                        error("🛑 PIPELINE ARRÊTÉ - Erreur critique Trivy Scan: ${e.message}")
                     }
                 }
             }
@@ -350,6 +350,154 @@ pipeline {
                         }
                         echo "❌ Erreur Quality Gate ZAP: ${e.message}"
                         error("🛑 PIPELINE ARRÊTÉ - Erreur critique Quality Gate ZAP: ${e.message}")
+                    }
+                }
+            }
+        }
+
+        stage('📋 Consolidation des Rapports') {
+            steps {
+                script {
+                    try {
+                        echo "📋 Consolidation de tous les rapports de sécurité..."
+                        
+                        // Créer un rapport consolidé de tous les outils
+                        sh '''
+                            echo "=== RAPPORT CONSOLIDÉ DE SÉCURITÉ ===" > security-reports/rapport-complet.txt
+                            echo "Date: $(date)" >> security-reports/rapport-complet.txt
+                            echo "Build: ${BUILD_NUMBER}" >> security-reports/rapport-complet.txt
+                            echo "" >> security-reports/rapport-complet.txt
+                            
+                            # SonarQube
+                            echo "========== SONARQUBE ==========" >> security-reports/rapport-complet.txt
+                            if [ -f "security-reports/sonarqube-success.txt" ]; then
+                                cat security-reports/sonarqube-success.txt >> security-reports/rapport-complet.txt
+                            elif [ -f "security-reports/sonarqube-error.txt" ]; then
+                                cat security-reports/sonarqube-error.txt >> security-reports/rapport-complet.txt
+                            elif [ -f "security-reports/sonarqube-unavailable.txt" ]; then
+                                cat security-reports/sonarqube-unavailable.txt >> security-reports/rapport-complet.txt
+                            else
+                                echo "SonarQube non exécuté" >> security-reports/rapport-complet.txt
+                            fi
+                            echo "" >> security-reports/rapport-complet.txt
+                            
+                            # Trivy SCA
+                            echo "========== TRIVY SCA ==========" >> security-reports/rapport-complet.txt
+                            if [ -f "security-reports/trivy-sca-results.txt" ]; then
+                                cat security-reports/trivy-sca-results.txt >> security-reports/rapport-complet.txt
+                            elif [ -f "trivy-reports/sca-report.txt" ]; then
+                                echo "Résumé Trivy SCA:" >> security-reports/rapport-complet.txt
+                                head -20 trivy-reports/sca-report.txt >> security-reports/rapport-complet.txt
+                            else
+                                echo "Trivy SCA non disponible" >> security-reports/rapport-complet.txt
+                            fi
+                            echo "" >> security-reports/rapport-complet.txt
+                            
+                            # Trivy Image
+                            echo "========== TRIVY IMAGE ==========" >> security-reports/rapport-complet.txt
+                            if [ -f "trivy-reports/image-scan.txt" ]; then
+                                echo "Résumé Trivy Image:" >> security-reports/rapport-complet.txt
+                                head -20 trivy-reports/image-scan.txt >> security-reports/rapport-complet.txt
+                            else
+                                echo "Trivy Image non disponible" >> security-reports/rapport-complet.txt
+                            fi
+                            echo "" >> security-reports/rapport-complet.txt
+                            
+                            # OWASP ZAP
+                            echo "========== OWASP ZAP ==========" >> security-reports/rapport-complet.txt
+                            if [ -f "security-reports/zap-results.txt" ]; then
+                                cat security-reports/zap-results.txt >> security-reports/rapport-complet.txt
+                            elif [ -f "security-reports/zap-success.txt" ]; then
+                                cat security-reports/zap-success.txt >> security-reports/rapport-complet.txt
+                            elif [ -f "security-reports/zap-failure.txt" ]; then
+                                cat security-reports/zap-failure.txt >> security-reports/rapport-complet.txt
+                            else
+                                echo "OWASP ZAP non disponible" >> security-reports/rapport-complet.txt
+                            fi
+                            echo "" >> security-reports/rapport-complet.txt
+                            
+                            # Quality Gates Summary
+                            echo "========== QUALITY GATES SUMMARY ==========" >> security-reports/rapport-complet.txt
+                            echo "SonarQube Quality Gate: $([ -f "security-reports/sonarqube-qg-success.txt" ] && echo "RÉUSSI" || echo "VÉRIFIÉ")" >> security-reports/rapport-complet.txt
+                            echo "Trivy SCA Quality Gate: $([ -f "security-reports/trivy-sca-success.txt" ] && echo "RÉUSSI" || echo "VÉRIFIÉ")" >> security-reports/rapport-complet.txt
+                            echo "OWASP ZAP Quality Gate: $([ -f "security-reports/zap-success.txt" ] && echo "RÉUSSI" || echo "VÉRIFIÉ")" >> security-reports/rapport-complet.txt
+                        '''
+                        
+                        // Créer un fichier JSON consolidé pour Mistral AI
+                        def consolidatedData = [:]
+                        
+                        // Lire SonarQube
+                        consolidatedData.sonarqube = [:]
+                        if (fileExists('security-reports/sonarqube-success.txt')) {
+                            consolidatedData.sonarqube.status = 'success'
+                            consolidatedData.sonarqube.details = readFile('security-reports/sonarqube-success.txt')
+                        } else if (fileExists('security-reports/sonarqube-error.txt')) {
+                            consolidatedData.sonarqube.status = 'error'
+                            consolidatedData.sonarqube.details = readFile('security-reports/sonarqube-error.txt')
+                        } else if (fileExists('security-reports/sonarqube-unavailable.txt')) {
+                            consolidatedData.sonarqube.status = 'unavailable'
+                            consolidatedData.sonarqube.details = readFile('security-reports/sonarqube-unavailable.txt')
+                        } else {
+                            consolidatedData.sonarqube.status = 'not_executed'
+                            consolidatedData.sonarqube.details = 'SonarQube non exécuté'
+                        }
+                        
+                        // Lire Trivy SCA
+                        consolidatedData.trivy_sca = [:]
+                        if (fileExists('security-reports/trivy-sca-results.txt')) {
+                            consolidatedData.trivy_sca.status = 'completed'
+                            consolidatedData.trivy_sca.details = readFile('security-reports/trivy-sca-results.txt')
+                        } else {
+                            consolidatedData.trivy_sca.status = 'unknown'
+                            consolidatedData.trivy_sca.details = 'Résultats Trivy SCA non disponibles'
+                        }
+                        
+                        // Lire Trivy Image
+                        consolidatedData.trivy_image = [:]
+                        if (fileExists('trivy-reports/image-scan.txt')) {
+                            consolidatedData.trivy_image.status = 'completed'
+                            consolidatedData.trivy_image.details = sh(script: 'head -20 trivy-reports/image-scan.txt', returnStdout: true)
+                        } else {
+                            consolidatedData.trivy_image.status = 'unknown'
+                            consolidatedData.trivy_image.details = 'Trivy Image scan non disponible'
+                        }
+                        
+                        // Lire OWASP ZAP
+                        consolidatedData.owasp_zap = [:]
+                        if (fileExists('security-reports/zap-results.txt')) {
+                            consolidatedData.owasp_zap.status = 'completed'
+                            consolidatedData.owasp_zap.details = readFile('security-reports/zap-results.txt')
+                        } else if (fileExists('security-reports/zap-success.txt')) {
+                            consolidatedData.owasp_zap.status = 'success'
+                            consolidatedData.owasp_zap.details = readFile('security-reports/zap-success.txt')
+                        } else if (fileExists('security-reports/zap-failure.txt')) {
+                            consolidatedData.owasp_zap.status = 'failure'
+                            consolidatedData.owasp_zap.details = readFile('security-reports/zap-failure.txt')
+                        } else {
+                            consolidatedData.owasp_zap.status = 'unknown'
+                            consolidatedData.owasp_zap.details = 'OWASP ZAP non disponible'
+                        }
+                        
+                        // Quality Gates Summary
+                        consolidatedData.quality_gates = [:]
+                        consolidatedData.quality_gates.sonarqube = fileExists('security-reports/sonarqube-qg-success.txt') ? 'PASSED' : 
+                                                                  fileExists('security-reports/sonarqube-failure.txt') ? 'FAILED' : 'SKIPPED'
+                        consolidatedData.quality_gates.trivy_sca = fileExists('security-reports/trivy-sca-success.txt') ? 'PASSED' : 
+                                                                  fileExists('security-reports/trivy-sca-failure.txt') ? 'FAILED' : 'UNKNOWN'
+                        consolidatedData.quality_gates.owasp_zap = fileExists('security-reports/zap-success.txt') ? 'PASSED' : 
+                                                                  fileExists('security-reports/zap-failure.txt') ? 'FAILED' : 'UNKNOWN'
+                        
+                        // Sauvegarder les données consolidées
+                        writeFile file: 'security-reports/consolidated-data.json', text: groovy.json.JsonBuilder(consolidatedData).toPrettyString()
+                        
+                        echo "✅ Tous les rapports consolidés pour analyse Mistral AI"
+                        echo "📊 Fichiers générés:"
+                        echo "   - security-reports/rapport-complet.txt"
+                        echo "   - security-reports/consolidated-data.json"
+                        
+                    } catch (Exception e) {
+                        echo "⚠️ Erreur consolidation rapports: ${e.message}"
+                        // Ne pas arrêter le pipeline pour cette étape
                     }
                 }
             }
