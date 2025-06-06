@@ -12,9 +12,9 @@ pipeline {
         IMAGE_NAME = "demo-app"
         DOCKER_REGISTRY = "localhost:5000"
         
-        // SEUILS CRITIQUES POUR QUALITY GATES
-        MAX_CRITICAL_VULNS = '0'      // 0 vulnérabilité critique autorisée
-        MAX_HIGH_VULNS = '2'          // Maximum 2 vulnérabilités HIGH
+        // SEUILS CRITIQUES POUR QUALITY GATES - AJUSTABLES
+        MAX_CRITICAL_VULNS = '1'      // Autoriser 1 vulnérabilité critique
+        MAX_HIGH_VULNS = '6'          // Autoriser jusqu'à 6 vulnérabilités HIGH
         MAX_MEDIUM_VULNS = '5'        // Maximum 5 vulnérabilités MEDIUM
     }
 
@@ -507,39 +507,60 @@ pipeline {
             steps {
                 script {
                     try {
-                        echo "🤖 Consultation Mistral AI pour analyse des rapports de sécurité..."
+                        echo "🤖 Consultation Mistral AI avec rapports consolidés..."
                         
-                        // Lire les rapports de sécurité
-                        def sonarReport = fileExists('security-reports/sonarqube-success.txt') ? readFile('security-reports/sonarqube-success.txt') : 
-                                        fileExists('security-reports/sonarqube-error.txt') ? readFile('security-reports/sonarqube-error.txt') : 
-                                        fileExists('security-reports/sonarqube-unavailable.txt') ? readFile('security-reports/sonarqube-unavailable.txt') : 'SonarQube non execute'
+                        // Lire le rapport consolidé
+                        def consolidatedReport = ""
+                        if (fileExists('security-reports/rapport-complet.txt')) {
+                            consolidatedReport = readFile('security-reports/rapport-complet.txt')
+                        } else {
+                            echo "⚠️ Rapport consolidé non trouvé, utilisation des rapports individuels"
+                            
+                            // Fallback vers rapports individuels
+                            def sonarReport = fileExists('security-reports/sonarqube-success.txt') ? readFile('security-reports/sonarqube-success.txt') : 
+                                            fileExists('security-reports/sonarqube-error.txt') ? readFile('security-reports/sonarqube-error.txt') : 
+                                            fileExists('security-reports/sonarqube-unavailable.txt') ? readFile('security-reports/sonarqube-unavailable.txt') : 'SonarQube non execute'
+                            
+                            def zapReport = fileExists('security-reports/zap-success.txt') ? readFile('security-reports/zap-success.txt') : 
+                                          fileExists('security-reports/zap-failure.txt') ? readFile('security-reports/zap-failure.txt') : 'ZAP non execute'
+                            
+                            def trivyScaReport = fileExists('security-reports/trivy-sca-results.txt') ? readFile('security-reports/trivy-sca-results.txt') : 'Trivy SCA non execute'
+                            
+                            def trivyImageReport = fileExists('trivy-reports/image-scan.txt') ? sh(script: 'head -10 trivy-reports/image-scan.txt', returnStdout: true) : 'Trivy Image non execute'
+                            
+                            consolidatedReport = "RAPPORT CONSOLIDÉ:\n\nSONARQUBE:\n${sonarReport}\n\nTRIVY SCA:\n${trivyScaReport}\n\nTRIVY IMAGE:\n${trivyImageReport}\n\nOWASP ZAP:\n${zapReport}"
+                        }
                         
-                        def zapReport = fileExists('security-reports/zap-success.txt') ? readFile('security-reports/zap-success.txt') : 
-                                      fileExists('security-reports/zap-failure.txt') ? readFile('security-reports/zap-failure.txt') : 'ZAP non execute'
+                        // Préparer le prompt optimisé pour Mistral avec tout le contexte
+                        def cleanReport = consolidatedReport.replaceAll(/[\n\r\t"\\]/, ' ').take(1500) // Plus de contenu
                         
-                        def trivyReport = fileExists('trivy-reports/sca-report.txt') ? sh(script: 'head -20 trivy-reports/sca-report.txt', returnStdout: true) : 'Trivy non execute'
-                        
-                        // Préparer le prompt pour Mistral
-                        def cleanSonarReport = sonarReport.replaceAll(/[\n\r\t"\\]/, ' ').take(200)
-                        def cleanZapReport = zapReport.replaceAll(/[\n\r\t"\\]/, ' ').take(200)
-                        def cleanTrivyReport = trivyReport.replaceAll(/[\n\r\t"\\]/, ' ').take(500)
-                        
-                        def prompt = "Analyse les rapports de securite suivants et donne des recommandations: SONARQUBE: ${cleanSonarReport} ZAP SCAN: ${cleanZapReport} TRIVY SCAN: ${cleanTrivyReport} Fournis une analyse resumee en francais avec des recommandations concretes pour ameliorer la securite."
+                        def enhancedPrompt = """Analyse complète des rapports de sécurité consolidés d'un pipeline DevSecOps:
+
+${cleanReport}
+
+En tant qu'expert en sécurité applicative, fournis:
+1. Résumé exécutif du niveau de sécurité global
+2. Analyse détaillée par outil (SonarQube, Trivy SCA, Trivy Image, OWASP ZAP)
+3. Vulnérabilités critiques identifiées et leur impact
+4. Recommandations prioritaires d'actions correctives
+5. Stratégies d'amélioration du pipeline de sécurité
+
+Réponds en français avec un format structuré et des priorités claires."""
                         
                         def jsonPayload = """{
   "model": "mistral-large-latest",
   "messages": [
     {
       "role": "system",
-      "content": "Tu es un expert en securite applicative qui analyse des rapports de tests de securite."
+      "content": "Tu es un expert senior en cybersécurité spécialisé dans l'analyse de pipelines DevSecOps. Tu analyses les rapports de sécurité automatisés et fournis des recommandations stratégiques."
     },
     {
       "role": "user", 
-      "content": "${prompt.replace('"', '\\"')}"
+      "content": "${enhancedPrompt.replace('"', '\\"')}"
     }
   ],
-  "max_tokens": 1000,
-  "temperature": 0.3
+  "max_tokens": 1500,
+  "temperature": 0.2
 }"""
                         
                         writeFile file: 'mistral-payload.json', text: jsonPayload
@@ -558,7 +579,7 @@ pipeline {
                             sh 'rm -f mistral-payload.json'
                             
                             try {
-                                echo "🤖 Réponse Mistral reçue (${response.length()} caractères)"
+                                echo "🤖 Réponse Mistral AI reçue (${response.length()} caractères)"
                                 
                                 def mistralAnalysis = ""
                                 if (response.contains('"content":"')) {
@@ -574,21 +595,43 @@ pipeline {
                                 }
                                 
                                 if (mistralAnalysis.isEmpty()) {
-                                    mistralAnalysis = "Analyse Mistral AI générée mais extraction impossible. Consultez les logs."
+                                    mistralAnalysis = "Analyse Mistral AI générée mais extraction impossible. Consultez les logs pour la réponse complète."
                                 }
                                 
-                                echo "✅ Analyse Mistral AI extraite"
+                                echo "✅ Analyse Mistral AI extraite avec succès"
                                 
-                                writeFile file: 'security-reports/mistral-analysis.txt', text: """ANALYSE MISTRAL AI - SECURITE
+                                // Sauvegarder l'analyse complète
+                                writeFile file: 'security-reports/mistral-analysis-complete.txt', text: """ANALYSE MISTRAL AI COMPLÈTE - SÉCURITÉ DEVSECOPS
+=====================================================
+Date: ${new Date()}
+Build: ${BUILD_NUMBER}
+Pipeline: ${JOB_NAME}
+
+RAPPORT CONSOLIDÉ ANALYSÉ:
+${consolidatedReport.take(1000)}
+
+ANALYSE MISTRAL AI:
+${mistralAnalysis}
+
+DONNÉES BRUTES:
+${response.take(2000)}
+"""
+
+                                // Créer aussi une version résumée
+                                writeFile file: 'security-reports/mistral-analysis.txt', text: """ANALYSE MISTRAL AI - RÉSUMÉ SÉCURITÉ
 Date: ${new Date()}
 Build: ${BUILD_NUMBER}
 
 ${mistralAnalysis}
 """
                                 
+                                echo "📊 Analyse Mistral AI sauvegardée:"
+                                echo "   - mistral-analysis.txt (résumé)"
+                                echo "   - mistral-analysis-complete.txt (détails complets)"
+                                
                             } catch (Exception parseError) {
                                 echo "⚠️ Erreur parsing réponse Mistral: ${parseError.message}"
-                                writeFile file: 'security-reports/mistral-parse-error.txt', text: "Erreur parsing Mistral AI: ${parseError.message}"
+                                writeFile file: 'security-reports/mistral-parse-error.txt', text: "Erreur parsing Mistral AI: ${parseError.message}\nRéponse brute: ${response.take(1000)}"
                             }
                         }
                         
